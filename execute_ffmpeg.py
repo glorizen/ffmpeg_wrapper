@@ -1,0 +1,796 @@
+import os
+import sys
+import time
+import argparse
+import subprocess
+from datetime import timedelta
+from frame_rate import source_from_avscript
+
+CH_TEMPLATE_STRING = \
+'''<?xml version="1.0"?>
+<!-- <!DOCTYPE Chapters SYSTEM "matroskachapters.dtd"> -->
+<Chapters>
+  <EditionEntry>
+    <EditionFlagDefault>${edition['default']}</EditionFlagDefault>
+    <EditionFlagOrdered>${edition['oc']}</EditionFlagOrdered>
+    <EditionUID>12345600</EditionUID>
+    <EditionFlagHidden>0</EditionFlagHidden>
+    <ChapterAtom tal:repeat="atom atoms">
+      <ChapterUID>${atom['uid']}</ChapterUID>
+      <ChapterTimeStart>${atom['start']}</ChapterTimeStart>
+      <ChapterTimeEnd>${atom['end']}</ChapterTimeEnd>
+      <ChapterSegmentUID format="hex" tal:condition="'suid' in atom">${atom['suid']}</ChapterSegmentUID>
+      <ChapterFlagHidden>${atom['hidden']}</ChapterFlagHidden>
+      <ChapterFlagEnabled>${atom['enabled']}</ChapterFlagEnabled>
+      <ChapterDisplay>
+        <ChapterString>${atom['ch-string']}</ChapterString>
+        <ChapterCountry>us</ChapterCountry>
+        <ChapterLanguage>eng</ChapterLanguage>
+      </ChapterDisplay>
+    </ChapterAtom>
+  </EditionEntry>
+</Chapters>'''
+##################################################################################################
+class FolderNotFoundError(Exception):
+  pass
+
+##################################################################################################
+def get_params():
+  parser = argparse.ArgumentParser()
+  parser.add_argument('in', type=str, help='input .avs filename to parse.')
+  parser.add_argument('-crf', default=23, type=float, help='crf value to use in libx264.')
+  parser.add_argument('-aqm', default=3, type=int, help='aq-mode to use in libx264.')
+  parser.add_argument('-aqs', default=1.00, type=float, help='aq-strength to use in libx264.')
+
+  parser.add_argument('-node', default=-1, type=int, 
+    help='computing node that will be sshed into and then used for encoding.')
+  parser.add_argument('-nohup', type=str, default=str(), help='filename which will contain stdout, stderr. ' \
+    'Also puts the job to background using nohup.')
+  parser.add_argument('-rs', type=str, help='this option will resize output video. ' \
+    'e.g. 1280:720 will give you 720p video. 1280:-1 will give you width of 1280 and height with ' \
+    'respective aspect ratio. Same will apply for given height like -1:720')
+  parser.add_argument('-dest', type=str, help='this option will create output file to given destination ' \
+    'folder name. Files will be created there to begin with rather than moving them to the folder ' \
+    'after completion.')
+  parser.add_argument('-trim', type=int, help='this option will process given trimmed section only ' \
+    'while ignoring rest of the video.')
+  parser.add_argument('-track', type=int, help='this option will process given track id stream only ' \
+    'while ignoring rest of the streams.')
+  parser.add_argument('-fr', type=float, help='this option will assume the frame rate for the source file')
+  parser.add_argument('-prompt', action='store_true', 
+    help='this option will prompt user to confirm before writing to disk.')
+  parser.add_argument('-x', action='store_true', 
+    help='this option will execute the bash script, if created any, at the end.')
+  parser.add_argument('-nthread', action='store_true', help='this option will enable multithreading of ffmpegs.')
+  parser.add_argument('-vn', action='store_true', help='this option will disable video encoding.')
+  parser.add_argument('-an', action='store_true', help='this option will disable audio encoding.')
+  parser.add_argument('-sn', action='store_true', help='this option will disable subtitle encoding.')
+  parser.add_argument('-tn', action='store_true', help='this option will disable attachments.')
+  parser.add_argument('-cc', action='store_true', help='this option will create chapter file from trims.')
+  parser.add_argument('-mx', type=str, help='this option muxes streams at the end by mkvmerge.')
+  parser.add_argument('-hi', action='store_true', help='this option will use ffmpeg-hi that has non-free libs.')
+  parser.add_argument('-map_ch', action='store_true', help='this option will attach default chapter file.')
+
+  parser.add_argument('-op', type=str, help='specify opening file for .mkv OC.')
+  parser.add_argument('-ed', type=str, help='specify ending file for .mkv OC.')
+
+  params = parser.parse_args().__dict__
+  params['rs'] = params['rs'].split(':') if params.get('rs') and len(params['rs'].split(':')) == 2 else str()
+  params['rs'] = [x.replace('0', '-1') if len(x) == 1 else x for x in params['rs']]
+  
+  params['input_dir'] = os.path.dirname(os.path.abspath(params['in']))
+  params['orig_dir'] = os.path.abspath(os.path.curdir)
+
+  if params['dest']:
+    dest_path = os.path.abspath(params['dest'])
+    if not os.path.exists(dest_path):
+      raise FolderNotFoundError('Destination Folder doesn\'t exist: %s' % (dest_path))
+    
+    if not os.path.isfile(params['in']):
+      raise FileNotFoundError('Given input file does not exist: %s' % (params['in']))
+    
+  return params
+
+##################################################################################################
+def get_source(input_file):
+
+  basename = os.path.basename(input_file)
+  input_source = [x for x in os.listdir(params['input_dir']) 
+    if basename[:-4] == x[:-4] and x.endswith(('.mkv', '.mp4', '.avi', '.ts'))]
+
+  input_source = ''.join(input_source) if len(input_source) == 1 else \
+    ''.join([x for x in input_source if x.endswith('.mkv')])
+
+  if not input_source:
+    input_source = source_from_avscript(input_file)
+    if not input_source:
+      raise FileNotFoundError('Could not detect input source from avscript file: %s' % input_file)
+
+  return os.path.join(os.path.dirname(params['in']), input_source)
+
+##################################################################################################
+def parse_avs_chapters(avs_content):
+  
+  avs_chap_string = ''.join([x.strip('##!!') for x in avs_content 
+    if x.startswith('##!!') and '>' in x and '<' in x])
+
+  if not avs_chap_string:
+    return None
+
+  filtered_chaps = [x.strip('>').strip('<').strip(' ').strip('\n') 
+    for x in avs_chap_string.split(',')] if avs_chap_string else None
+
+  avs_chapters = dict()
+  avs_chapters['names'] = list(); avs_chapters['frames'] = list()
+
+  for chapter in filtered_chaps:
+    name = chapter.split('[')[0]
+    start = int(chapter.split('[')[1].split(':')[0].strip(' '))
+    end = int(chapter.split('[')[1].split(':')[1].split(']')[0].strip(' '))
+    avs_chapters['names'].append(name)
+    avs_chapters['frames'].append((start, end))
+
+  return avs_chapters
+
+##################################################################################################
+def get_custom_commands(input_file):
+
+  commands_dict = dict()
+  avsfile = open(input_file)
+  file_content = avsfile.readlines()
+  avsfile.close()
+
+  commands = ','.join([x.strip('##>') for x in file_content if x.startswith('##>')]).split(',')
+  
+  for command in commands:
+    if not command or len(command) < 3:
+      continue
+  
+    option, value = command.split('=')
+    commands_dict[option] = value.strip('\r').strip('\n')
+
+  avs_chapters = parse_avs_chapters(file_content)
+  
+  if avs_chapters:
+    commands_dict['avs_chapters'] = avs_chapters
+
+  return commands_dict
+
+##################################################################################################
+def get_trim_times(input_file, frame_rate):
+
+  trims_list = list()
+  times_list = list()
+
+  curr_dir = os.path.abspath(os.path.curdir)
+  os.chdir(params['input_dir'])
+  
+  trims = ''.join([x for x in open(os.path.basename(input_file)).readlines() 
+    if not x.startswith('#') and 'trim(' in x.lower()]).replace(' ', '').replace('\n', '').split('++')
+  
+  os.chdir(curr_dir)
+
+  for tm in trims:
+    if not tm:
+      continue
+
+    start_frame = int(tm.split(',')[0].lower().replace('trim(', ''))
+    start_time = float('%.3f' % (start_frame / frame_rate))
+
+    end_frame = int(tm.split(',')[1].lower().replace(')', ''))
+    end_time = float('%.3f' % (end_frame / frame_rate))
+
+    trims_list.append((start_frame, end_frame))
+    times_list.append((start_time, end_time))
+
+  print('Trimmed Frames:', trims_list)
+  print('Trimmed timestamps:', times_list)
+  return times_list
+
+##################################################################################################
+def get_frame_rate(filename):
+  
+  if not os.path.isfile(filename):
+    raise FileNotFoundError('File does not exist: %s' % (filename))
+
+  probe_command = r'ffprobe -v error -select_streams v -show_entries ' \
+  'stream=r_frame_rate:stream_tags=DURATION,NUMBER_OF_FRAMES ' \
+  '-of default=noprint_wrappers=1 %s' % (os.path.basename(filename))
+
+  # info_command = r'mediainfo --Inform="Video;%FrameRate%"' 
+  # info_command = '%s %s' % (info_command, filename)
+
+  curr_dir = os.path.abspath(os.path.curdir)
+  os.chdir(params['input_dir'])
+
+  result = subprocess.Popen(probe_command, shell=True, stdout=subprocess.PIPE).stdout.read().decode('utf-8')
+  result = result.replace('\r', '').strip('\n')
+  os.chdir(curr_dir)
+  
+  filtered = dict()
+
+  for expression in result.strip('\n').split('\n'):
+    key = expression.split('=')[0].lower()
+    value = expression.split('=')[1]
+
+    if 'r_frame_rate' in key:
+      numerator = int(value.split('/')[0])
+      denominator = int(value.split('/')[1])
+      value = round(numerator / denominator, 3)
+
+    if 'tag:number_of_frames' in key:
+      value = int(value)
+
+    if 'tag:duration' in key:
+      seconds = sum(int(x) * 60 ** i for i, x in enumerate(reversed(value.split('.')[0].split(":"))))
+      new_time = (seconds + float('0.' + value.split('.')[1])) if len(value.split('.')) > 1 else seconds
+      value = new_time
+
+    filtered[key] = value
+
+  if 'tag:number_of_frames' in filtered.keys() and 'tag:duration' in filtered.keys():
+    temp = str(filtered['tag:number_of_frames'] / filtered['tag:duration'])
+    return float(temp[: 1 + temp.find('.') + 3])
+
+  else:
+    return filtered['r_frame_rate']
+  
+##################################################################################################
+def get_tracks_indices(filename):
+  
+  tracks = dict()
+  curr_dir = os.path.abspath(os.path.curdir)
+  os.chdir(params['input_dir'])
+
+  for stream_type in ['v', 'a', 's']:
+    probe_command = 'ffprobe -v fatal -of flat=s=_ -select_streams %s -show_entries ' \
+      'stream=index %s' % (stream_type, os.path.basename(filename))
+    result = subprocess.Popen(probe_command, shell=True, stdout=subprocess.PIPE).stdout.read().decode('utf-8')
+    tracks[stream_type] = [int(x.replace('\r', '').split('=')[1]) for x in result.split('\n') if x]
+
+  os.chdir(curr_dir)
+  return tracks
+
+##################################################################################################
+def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
+
+  if times:
+    start = '%.3f' % (times[0]); end = '%.3f' % (times[1])
+    start_format = str(timedelta(seconds=int(start.split('.')[0]), milliseconds=int(start.split('.')[1])))
+    end_format = str(timedelta(seconds=int(end.split('.')[0]), milliseconds=int(end.split('.')[1])))
+
+  if params['vn'] and params['sn'] and params['tn'] and not params['an']:
+    temp_name = '%s_%02d.aac' % (params['in'][:-4], command_num + 1)
+  else:
+    temp_name = '%s_%02d.%s' % (params['in'][:-4], command_num + 1, params['source_file'][-3:])
+    
+  if is_out:
+    temp_name = is_out
+
+  if params['dest']:
+    temp_name = '"%s"' % (os.path.join(params['dest'], temp_name))
+    
+  if params['rs']:
+    video_scaling = '-vf scale=%s:%s' % (params['rs'][0], params['rs'][1])
+  else:
+    video_scaling = str()
+
+  if params['vn']:
+    video_encoding = '-vn'
+  else:
+    video_encoding = '-map 0:v -c:v libx264 -preset veryslow -crf %s -aq-mode %s -aq-strength %s' % (
+      params['crf'], params['aqm'], params['aqs'])
+
+  if params['an']:
+    audio_encoding = '-an'
+  else:
+    if track_id != -1:
+      audio_encoding = '-map 0:%d -c:a libfdk_aac -vbr 4' % (track_id)
+    else:
+      audio_encoding = '-map 0:a -c:a libfdk_aac -vbr 4'
+    
+  if params['sn']:
+    subtitle_transcoding = '-sn'
+  else:
+    subtitle_transcoding = '-map 0:s'
+    
+  if params['tn']:
+    attachments = str()
+  else:
+    attachments = '-map 0:t'
+    
+  if params['map_ch']:
+    chapter_attachment = str()
+  else:
+    chapter_attachment = '-map_chapters -1'
+    
+  if not params['hi']:
+    ffmpeg_version = 'ffmpeg'
+  else:
+    ffmpeg_version = 'ffmpeg-hi'
+
+  if not params['nthread']:
+    PID = 'PID%02d' % (command_num + 1)
+    threading = '& %s=$!' % (PID)
+  else:
+    threading = str()
+    PID = str()
+  
+  if times:
+    ffmpeg_command = '%s -i %s -vsync 1 -ss %s -to %s %s %s %s %s %s %s %s %s' % (ffmpeg_version, 
+      params['source_file'], start_format, end_format, video_encoding, audio_encoding, 
+      subtitle_transcoding, attachments, chapter_attachment, video_scaling, temp_name, threading)
+  else:
+    ffmpeg_command = '%s -i %s %s %s %s %s %s %s %s %s' % (ffmpeg_version, params['source_file'], 
+      video_encoding, audio_encoding, subtitle_transcoding, attachments, chapter_attachment, 
+      video_scaling, temp_name, threading)
+
+  return {
+    'command': ffmpeg_command,
+    'temp_name': temp_name,
+    'pid': PID,
+  }
+
+##################################################################################################
+def get_ssh_commands(params):
+  
+  if params['node'] != -1:
+    curr_dir = '/'.join([x.replace('state', 'export').replace('partition1', '') 
+      for x in os.getcwd().split('/')])
+
+    start_ssh = 'ssh compute-0-%s << EOF' % params['node']
+    change_dir = 'cd %s' % (curr_dir)
+    exit_ssh = 'EOF\nexit'
+  else:
+    start_ssh = str(); change_dir = str(); exit_ssh = str()
+
+  return {
+    'login': start_ssh,
+    'chdir': change_dir,
+    'logout': exit_ssh
+  }
+
+##################################################################################################
+def get_metadata(filename):
+
+  if not os.path.isfile(filename):
+    print('File does not exist: %s' % (filename))
+    return None
+
+  info_command = r'mediainfo --Inform="General;%Duration/String3%\n%UniqueID%"' 
+  info_command = '%s %s' % (info_command, filename)
+
+  result = subprocess.Popen(info_command, shell=True, stdout=subprocess.PIPE).stdout.read().decode('utf-8')
+  
+  metadata = dict()
+  metadata['duration'], suid = [x.replace('\r', '') for x in result.split('\n') if len(x) > 2]
+  metadata['suid'] = "{0:X}".format(int(suid))
+  metadata['name'] = filename
+  
+  return metadata
+
+##################################################################################################
+def get_names_and_order(times_list, params):
+
+  has_op = True; has_ed = True; fixed_names = list()
+
+  if params.get('avs_chapters'):
+    fixed_names = params['avs_chapters']['names']
+    times_list = params['avs_chapters']['times']
+
+    if 'opening' in [x.lower() for x in fixed_names]:
+      has_op = False
+    if 'ending' in [x.lower() for x in fixed_names]:
+      has_ed = False
+
+  if len(times_list) == 1 and (params['op'] and params['ed']):
+    names = ['Opening', 'Episode', 'Ending']
+    order = [params['op'], times_list[0], params['ed']]
+    
+  elif len(times_list) == 1 and (params['op'] and not params['ed']):
+    if fixed_names and times_list[0][0] > 50:
+      names = ['Opening']; names.extend(fixed_names)
+      order = [params['op']]; order.extend(times_list)
+    else:
+      names = ['Opening', 'Episode']
+      order = [params['op'], times_list[0]]
+    
+  elif len(times_list) == 1 and (not params['op'] and params['ed']):
+    names = ['Episode', 'Ending']
+    order = [times_list[0], params['ed']]
+
+  elif len(times_list) == 1 and (not params['op'] and not params['ed']):
+    names = ['Episode']
+    order = times_list
+
+  elif len(times_list) == 2 and (params['op'] and params['ed']):
+    if times_list[0][0] == 0 and (times_list[0][1] - times_list[0][0] <= 600):
+      names = ['Intro', 'Opening', 'Episode', 'Ending']
+      order = [times_list[0], params['op'], times_list[1], params['ed']]
+    else:
+      names = ['Opening', 'Episode', 'Ending', 'Preview']      
+      new_times = list(); offset = times_list[0][0]
+      new_times.append((times_list[0][0] - offset, times_list[0][1] - offset))
+      new_times.append((times_list[1][0] - offset, times_list[1][1] - offset))
+
+      order = [params['op'], new_times[0] , params['ed'], new_times[1]]
+  
+  elif len(times_list) == 2 and (params['op'] and not params['ed']):
+    if fixed_names and times_list[0][0] < 50:
+      names = fixed_names
+      order = times_list
+    elif fixed_names and times_list[0][0] > 50:
+      names = ['Opening']; names.extend(fixed_names)
+      order = [params['op']]; order.extend(times_list)
+    elif times_list[0][0] == 0 and (times_list[0][1] - times_list[0][0] <= 600):
+      names = ['Intro', 'Opening', 'Episode']
+      order = [times_list[0], params['op'], times_list[1]]
+    elif times_list[0][0] == 0 and (times_list[0][1] - times_list[0][0] >= 600):
+      names = ['Episode', 'Opening', 'Preview']
+      order = [times_list[0], params['op'], times_list[1]]
+    else:
+      names = ['Opening', 'Episode', 'Preview']
+      order = [params['op'], times_list[0], times_list[1]]
+
+  elif len(times_list) == 2 and (not params['op'] and params['ed']):
+    if times_list[0][0] == 0 and (times_list[0][1] - times_list[0][0] <= 600):
+      names = ['Intro', 'Episode', 'Ending']
+      order = [times_list[0], times_list[1], params['ed']]
+    else:
+      names = ['Episode', 'Ending', 'Preview']
+      order = [times_list[0], params['ed'], times_list[1]]
+
+  elif len(times_list) == 2 and (not params['op'] and not params['ed']):
+    if times_list[0][0] == 0 and (times_list[0][1] - times_list[0][0] <= 600):
+      names = ['Intro', 'Episode']
+      order = times_list
+    else:
+      names = ['Episode', 'Preview']
+      order = times_list
+
+  elif len(times_list) == 3 and (params['op'] and params['ed']):
+    names = ['Intro', 'Opening', 'Episode', 'Ending', 'Outro']
+    order = [times_list[0], params['op'], times_list[1], params['ed'], times_list[2]]
+
+  elif len(times_list) == 3 and (params['op'] and not params['ed']):
+    if fixed_names and times_list[0][0] > 50:
+      names = ['Opening']; names.extend(fixed_names)
+      order = [params['op']]; order.extend(times_list)
+    else:
+      names = ['Intro', 'Opening', 'Episode', 'Outro']
+      order = [times_list[0], params['op'], times_list[1], times_list[2]]
+
+  elif len(times_list) == 3 and (not params['op'] and params['ed']):
+    names = ['Intro', 'Episode', 'Ending', 'Outro']
+    order = [times_list[0], times_list[1], params['ed'], times_list[2]]
+
+  elif len(times_list) == 3 and (not params['op'] and not params['ed']):
+    if fixed_names:
+      names = fixed_names
+      order = times_list
+    else:
+      names = ['Intro', 'Episode', 'Outro']
+      order = times_list
+
+  elif len(times_list) == 4 and (params['op'] and not params['ed']):
+    if fixed_names and times_list[0][0] > 50:
+      names = ['Opening']; names.extend(fixed_names)
+      order = [params['op']]; order.extend(times_list)
+    elif fixed_names and times_list[0][0] < 50 and (times_list[1][0] - times_list[0][1]) > 50:
+      names = fixed_names[:1]; names.append('Opening'); names.extend(fixed_names[1:])
+      order = times_list[:1]; order.append(params['op']); order.extend(times_list[1:])
+
+  return names, order
+
+##################################################################################################
+def get_chapter_content(times_list, params):
+  
+  import chameleon
+  
+  edition = {
+    'default': 1, 
+    'oc': 1 if params['op'] or params['ed'] else 0, 
+    'uid': str(time.time()).replace('.', '')
+  }
+
+  if params.get('avs_chapters'):
+    frames = params['avs_chapters']['frames']
+    params['avs_chapters']['times'] = list()
+    
+    for frame in frames:
+      start = float('%.3f' % (frame[0] / params['frame_rate']))
+      end = float('%.3f' % (frame[1] / params['frame_rate']))
+      params['avs_chapters']['times'].append((start, end))
+
+
+  atoms = list()
+  names, order = get_names_and_order(times_list, params)
+  last_timestamp = None
+  
+  for num, item in enumerate(order):
+    atom = dict()
+    atom['uid'] = str(time.time() + num).replace('.', '')
+    atom['hidden'] = 0; atom['enabled'] = 1
+
+    if isinstance(item, dict):
+      atom['start'] = '%02d:%02d:%02d.%09d' % (0, 0, 0, 0)
+      atom['end'] = item['duration']
+      atom['suid'] = item['suid']
+
+    elif isinstance(item, (tuple, list)):
+      print(item, end=' -> ')
+      if 'episode' in names[num].lower() and 'intro' not in names:
+        item = (float('%.3f' % (item[0] - item[0])), float('%.3f' % (item[1] - item[0])))
+
+      if last_timestamp:
+        diff = item[1] - item[0]
+
+        calculated_start = last_timestamp + 1 / params['frame_rate']
+        calculated_end = calculated_start + diff
+
+        item = (float('%.3f' % (calculated_start)), float('%.3f' % (calculated_end)))
+
+      print(item)
+      atom['start'] = str(timedelta(seconds=int(str(item[0]).split('.')[0]), 
+        milliseconds=int(str(item[0]).split('.')[1].ljust(3, '0'))))
+      atom['end'] = str(timedelta(seconds=int(str(item[1]).split('.')[0]), 
+        milliseconds=int(str(item[1]).split('.')[1].ljust(3, '0')) - 1))
+
+      last_timestamp = item[1]
+
+    atom['ch-string'] = names[num]
+    atoms.append(atom)
+
+  template = chameleon.PageTemplate(CH_TEMPLATE_STRING)
+  request = {'edition': edition, 'atoms': atoms}
+  response = template(**request)
+  
+  return response
+
+##################################################################################################
+def get_chapter_mux_command(params):
+
+  input_name = os.path.abspath(params['encoded']).replace('/cygdrive/c/', 'C:/')
+  basename, ext = os.path.splitext(input_name)
+  output_name = '%s_FINAL%s' % (basename, ext)
+  chapter_name = os.path.abspath(params['chapter']['filename']).replace('/cygdrive/c/', 'C:/')
+
+  command = "mkvmerge --ui-language en --output '%s' --no-track-tags --no-global-tags " \
+    "'(' '%s' ')' --chapter-language eng --chapter-charset UTF-8 --chapters '%s'" % (output_name,
+      input_name, chapter_name)
+
+  return command
+
+##################################################################################################
+def handle_display(bash_commands, bash_filename, concat_commands, concat_filename):
+  
+  if bash_commands:
+    print('#' * 50 + '\nbash commands: [%s]' % (bash_filename))
+    for i in bash_commands:
+      print(i)
+
+  if concat_commands:
+    print('#' * 50 + '\nconcate file contents: [%s]' % (concat_filename))
+    for i in concat_commands:
+      print(i)
+
+##################################################################################################
+def handle_prompt():
+  
+  choice = input('\nContinuing will write these files to disk [y/n]: ')
+  if choice.lower() != 'y':
+    print('Program interrupted by user.')
+    exit(0)
+
+##################################################################################################
+def start_external_execution(external_command):
+  temp_name = 'temp_%s' % (str(time.time()).replace('.', ''))
+  f = open(temp_name, 'w')
+
+  print('_' * 50 + '\n' + '_' * 50 + '\n')
+  print('Starting external job...\n[%s]' % (external_command))
+  print('_' * 50 + '\n' + '_' * 50 + '\n')
+  process = subprocess.Popen(external_command, shell=True, stdout=subprocess.PIPE)
+  
+  for c in iter(lambda: process.stdout.read(1), b''):
+    try:
+      sys.stdout.write(c)
+      f.write(c)
+    except:
+      pass
+
+  os.remove(temp_name)
+
+##################################################################################################
+def handle_execution(params, bash_filename):
+
+  if params['node'] != -1 and not params['nohup']:
+    if params['dest']:
+      params['nohup'] = os.path.join(params['dest'], os.path.splitext(params['in'])[0] + '.log')
+    else:
+      params['nohup'] = os.path.splitext(params['in'])[0] + '.log'
+
+  if params['nohup']:
+    command = 'nohup bash %s &> %s&' % (bash_filename, params['nohup'])
+  else:
+    command = 'bash %s' % (bash_filename)
+  start_external_execution(command)
+
+##################################################################################################
+def add_external_commands(ffmpeg_obj, flag_str='bctw'):
+
+  global concat_commands, bash_commands, wait_commands, temp_filenames
+
+  if 'c' in flag_str:
+    concat_commands.append('file %s' % (ffmpeg_obj['temp_name']))
+
+  if 't' in flag_str:
+    temp_filenames.append(ffmpeg_obj['temp_name'])
+
+  if 'b' in flag_str:
+    bash_commands.append(ffmpeg_obj['command'])
+
+  if 'w' in flag_str:
+    wait_commands.append('wait $%s' % (ffmpeg_obj['pid'])) if ffmpeg_obj['pid'] else str()
+
+##################################################################################################
+params = get_params()
+times_list = list()
+
+if not params['in'].endswith('.avs'):
+  params['avs'] = False
+  print('Not an avscript. [Skipping custom commands processing from the given input]')
+  params['source_file'] = params['in']
+else:
+  params['avs'] = True
+  commands = get_custom_commands(params['in'])
+  params['source_file'] = os.path.join(os.path.dirname(params['in']), commands['input']) \
+    if commands.get('input') else get_source(params['in'])
+  params['avs_chapters'] = commands.get('avs_chapters')
+
+  if params.get('fr'):
+    params['frame_rate'] = params['fr']
+  else:
+    params['frame_rate'] = float(commands['frame_rate']) if commands.get('frame_rate') else \
+      get_frame_rate(params['source_file'])
+
+  times_list = get_trim_times(params['in'], params['frame_rate'])
+
+tracks = get_tracks_indices(params['source_file'])
+params['in'] = os.path.basename(params['in'])
+ssh = get_ssh_commands(params)
+
+print('Source:', params['source_file'])
+print(params)
+print('#' * 50)
+
+if params['cc']:
+  params['op'] = get_metadata(params['op']) if params.get('op') else None
+  params['ed'] = get_metadata(params['ed']) if params.get('ed') else None
+  params['chapter'] = {
+    'content': get_chapter_content(times_list, params),
+    'filename': '%s_chapter.xml' % (params['in'][:-4])
+  }
+
+
+if params['cc'] and params['chapter']:
+  f = open(params['chapter']['filename'], 'w')
+  f.write(params['chapter']['content'])
+  f.close()
+
+  print('#' * 50 + '\n' + 'Chapter file written: %s' % (params['chapter']['filename']))
+  print('\n')
+  exit(0)
+
+bash_commands = list(); wait_commands = list(); concat_commands = list(); temp_filenames = list()
+
+if params['rs']:
+  bash_filename = '%s_%s_%s.sh' % (params['in'][:-4], params['rs'][0], params['rs'][1])
+  concat_filename = '%s_%s_%s.txt' % (params['in'][:-4], params['rs'][0], params['rs'][1])
+else:
+  bash_filename = '%s.sh' % (params['in'][:-4])
+  concat_filename = '%s.txt' % (params['in'][:-4])
+
+if len(tracks['a']) > 1 and not params.get('track') and not params.get('an'):
+  for track_id in tracks['a']:
+    python_command = 'python3 %s %s -track %d -hi -x' % (__file__, params['in'], track_id)
+    start_external_execution(python_command)
+
+  exit(0)
+
+if params.get('track'):
+  if params['track'] in tracks['v']:
+    params['an'], params['sn'], params['tn'] = (True, True, True)
+  elif params['track'] in tracks['a']:
+    params['vn'], params['sn'], params['tn'] = (True, True, True)
+
+if params['vn'] and params['sn'] and params['tn'] and not params['an']:
+  if params.get('track'):
+    out_name = '%s_Audio_%d.aac' % (params['in'][:-4], params['track'])
+  else:
+    out_name = '%s_Audio_%d.aac' % (params['in'][:-4], tracks['a'][0])
+elif not params['vn'] and params['sn'] and params['an'] and params['tn']:
+  out_name = '%s_Encoded.mkv' % (params['in'][:-4])
+elif not params['vn'] and not params['sn'] and not params['an']:
+  out_name = '%s_Encoded.mkv' % (params['in'][:-4])
+else:
+  out_name = '%s_Encoded_%s.mkv' % (params['in'][:-4], str(time.time()).replace('.', ''))
+
+if params['dest']:
+  out_name = '"%s"' % (os.path.join(params['dest'], out_name))
+
+bash_commands.append(ssh['login']) if ssh['login'] else str()
+bash_commands.append(ssh['chdir']) if ssh['chdir'] else str()
+
+if (params['avs'] and not times_list) or not params['avs'] or len(times_list) == 1:
+  times = times_list[0] if len(times_list) == 1 else list()
+  
+  if params.get('track'):
+    ffmpeg = get_ffmpeg_command(params, times, is_out=out_name, track_id=params['track'])
+  else:
+    ffmpeg = get_ffmpeg_command(params, times, is_out=out_name)
+  add_external_commands(ffmpeg, 'bw')
+  
+else:
+  for num, times in enumerate(times_list):
+    
+    if params.get('track'):
+      ffmpeg = get_ffmpeg_command(params, times, num, track_id=params['track'])
+    else:
+      ffmpeg = get_ffmpeg_command(params, times, num)
+    
+    if params.get('trim') and params['trim'] == num + 1:
+      add_external_commands(ffmpeg,'bw')
+    elif not params.get('trim'):
+      add_external_commands(ffmpeg)
+      
+bash_commands.extend(wait_commands)
+
+if params['avs'] and len(times_list) > 1 and not params['trim']:
+  bash_commands.append('ffmpeg -v fatal -f concat -i %s -map :v? -c:v copy -map :a? -c:a copy ' \
+    '-map :s? -c:s copy -map 0:t? %s & PID%02d=$!' % (concat_filename, out_name, len(times_list) + 1))
+  bash_commands.append('wait $PID%02d' % (len(times_list) + 1))
+
+bash_commands.extend(['rm %s & echo Deleted File: %s' % (x, x) for x in temp_filenames])
+bash_commands.append('rm %s' % (bash_filename))
+bash_commands.append('rm %s' % (concat_filename)) if len(times_list) > 1 else None
+bash_commands.append(ssh['logout']) if ssh['logout'] else str()
+
+if params['mx']:
+
+  video_name = str(); audio_name = str(); sub_name = str();
+
+  if 'v' in params['mx']:
+    video_string = '-i %s_Encoded.mkv' % (params['in'][:-4])
+  if 'a' in params['mx']:
+    audio_string = '-i %s_Audio_%d.aac' % (params['in'][:-4], tracks['a'][0])
+  if 's' in params['mx']:
+    sub_string = '-i %s_Subtitle_final_%d.aac' % (params['in'][:-4], tracks['s'][0])
+  if 'c' in params['mx']:
+    ch_string = '-map_chapters -1'
+
+  command = 'ffmpeg %s %s %s -map 0:v? -c:v copy -map 1:a? -c:a copy -map 2:s? -c:s copy ' \
+    '-map 3:t? %s test000.mkv' % (video_string, audio_string, sub_string, ch_string)
+
+  bash_commands.append(command)
+
+if params['prompt']:
+  handle_display(bash_commands, bash_filename, concat_commands, concat_filename)
+  handle_prompt()
+
+print(os.path.abspath(os.path.curdir))
+if params['avs'] and len(times_list) > 1:
+  open(concat_filename, 'w').writelines([x + '\n' for x in concat_commands])
+  
+open(bash_filename, 'w').writelines([x + '\n' for x in bash_commands])
+
+if params['x']:
+  handle_execution(params, bash_filename)
+  
+  print('=' * 60)
+  print('Removed script: %s' % (bash_filename))
+  print('Removed concate file: %s' % (concat_filename)) if len(times_list) > 1 else None
+  print('=' * 60 + '\n')
+
+else:
+  print('Bash script created, but not executed: %s' % (bash_filename))
