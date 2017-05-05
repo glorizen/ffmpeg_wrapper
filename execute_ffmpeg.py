@@ -35,7 +35,29 @@ class FolderNotFoundError(Exception):
   pass
 
 ##################################################################################################
+def process_params(params):
+
+  if params.get('rs') and len(params['rs'].split(':')) == 2
+    params['rs'] = params['rs'].split(':')
+    params['rs'] = [x.replace('0', '-1') if len(x) == 1 else x for x in params['rs']]
+  
+
+  params['input_dir'] = os.path.dirname(os.path.abspath(params['in']))
+  params['orig_dir'] = os.path.abspath(os.path.curdir)
+
+  if params['dest']:
+    dest_path = os.path.abspath(params['dest'])
+    if not os.path.exists(dest_path):
+      raise FolderNotFoundError('Destination Folder doesn\'t exist: %s' % (dest_path))
+    
+    if not os.path.isfile(params['in']):
+      raise FileNotFoundError('Given input file does not exist: %s' % (params['in']))
+
+  return params
+    
+##################################################################################################
 def get_params():
+  
   parser = argparse.ArgumentParser()
   parser.add_argument('in', type=str, help='input .avs filename to parse.')
   parser.add_argument('-crf', default=23, type=float, help='crf value to use in libx264.')
@@ -75,20 +97,8 @@ def get_params():
   parser.add_argument('-ed', type=str, help='specify ending file for .mkv OC.')
 
   params = parser.parse_args().__dict__
-  params['rs'] = params['rs'].split(':') if params.get('rs') and len(params['rs'].split(':')) == 2 else str()
-  params['rs'] = [x.replace('0', '-1') if len(x) == 1 else x for x in params['rs']]
-  
-  params['input_dir'] = os.path.dirname(os.path.abspath(params['in']))
-  params['orig_dir'] = os.path.abspath(os.path.curdir)
+  params = process_params(params)
 
-  if params['dest']:
-    dest_path = os.path.abspath(params['dest'])
-    if not os.path.exists(dest_path):
-      raise FolderNotFoundError('Destination Folder doesn\'t exist: %s' % (dest_path))
-    
-    if not os.path.isfile(params['in']):
-      raise FileNotFoundError('Given input file does not exist: %s' % (params['in']))
-    
   return params
 
 ##################################################################################################
@@ -278,8 +288,12 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
   if params['vn']:
     video_encoding = '-vn'
   else:
-    video_encoding = '-map 0:v -c:v libx264 -preset veryslow -crf %s -aq-mode %s -aq-strength %s' % (
-      params['crf'], params['aqm'], params['aqs'])
+    if params['hevc']:
+      video_encoding = '-map 0:v -c:v libx265 -preset slower -x265-params crf=%s:aq-mode=%s:' \
+        'aq-strength=%s' % (params['crf'], params['aqm'], params['aqs'])
+    else:
+      video_encoding = '-map 0:v -c:v libx264 -preset veryslow -crf %s -aq-mode %s -aq-strength %s' % (
+        params['crf'], params['aqm'], params['aqs'])
 
   if params['an']:
     audio_encoding = '-an'
@@ -634,6 +648,28 @@ def add_external_commands(ffmpeg_obj, flag_str='bctw'):
     wait_commands.append('wait $%s' % (ffmpeg_obj['pid'])) if ffmpeg_obj['pid'] else str()
 
 ##################################################################################################
+def handle_chapter_writing(params):
+
+  if not params.get('cc'):
+    return
+
+  params['op'] = get_metadata(params['op']) if params.get('op') else None
+  params['ed'] = get_metadata(params['ed']) if params.get('ed') else None
+  
+  params['chapter'] = {
+    'content': get_chapter_content(times_list, params),
+    'filename': '%s_chapter.xml' % (params['in'][:-4])
+  }
+
+  f = open(params['chapter']['filename'], 'w')
+  f.write(params['chapter']['content'])
+  f.close()
+
+  print('#' * 50 + '\n' + 'Chapter file written: %s' % (params['chapter']['filename']))
+  print('\n'); exit(0)
+
+##################################################################################################
+
 params = get_params()
 times_list = list()
 
@@ -644,15 +680,21 @@ if not params['in'].endswith('.avs'):
 else:
   params['avs'] = True
   commands = get_custom_commands(params['in'])
-  params['source_file'] = os.path.join(os.path.dirname(params['in']), commands['input']) \
-    if commands.get('input') else get_source(params['in'])
+  
+  if commands.get('input'):
+    params['source_file'] = os.path.join(os.path.dirname(params['in']), commands['input'])
+  else:
+    params['source_file'] = get_source(params['in'])
+
   params['avs_chapters'] = commands.get('avs_chapters')
 
   if params.get('fr'):
     params['frame_rate'] = params['fr']
   else:
-    params['frame_rate'] = float(commands['frame_rate']) if commands.get('frame_rate') else \
-      get_frame_rate(params['source_file'])
+    if commands.get('frame_rate'):
+      params['frame_rate'] = float(commands['frame_rate'])
+    else:
+      params['frame_rate'] = get_frame_rate(params['source_file'])
 
   times_list = get_trim_times(params['in'], params['frame_rate'])
 
@@ -664,25 +706,12 @@ print('Source:', params['source_file'])
 print(params)
 print('#' * 50)
 
-if params['cc']:
-  params['op'] = get_metadata(params['op']) if params.get('op') else None
-  params['ed'] = get_metadata(params['ed']) if params.get('ed') else None
-  params['chapter'] = {
-    'content': get_chapter_content(times_list, params),
-    'filename': '%s_chapter.xml' % (params['in'][:-4])
-  }
+handle_chapter_writing(params)
 
-
-if params['cc'] and params['chapter']:
-  f = open(params['chapter']['filename'], 'w')
-  f.write(params['chapter']['content'])
-  f.close()
-
-  print('#' * 50 + '\n' + 'Chapter file written: %s' % (params['chapter']['filename']))
-  print('\n')
-  exit(0)
-
-bash_commands = list(); wait_commands = list(); concat_commands = list(); temp_filenames = list()
+bash_commands = list() 
+wait_commands = list()
+concat_commands = list()
+temp_filenames = list()
 
 if params['rs']:
   bash_filename = '%s_%s_%s.sh' % (params['in'][:-4], params['rs'][0], params['rs'][1])
