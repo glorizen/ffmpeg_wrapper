@@ -37,11 +37,10 @@ class FolderNotFoundError(Exception):
 ##################################################################################################
 def process_params(params):
 
-  if params.get('rs') and len(params['rs'].split(':')) == 2
+  if params.get('rs') and len(params['rs'].split(':')) == 2:
     params['rs'] = params['rs'].split(':')
     params['rs'] = [x.replace('0', '-1') if len(x) == 1 else x for x in params['rs']]
   
-
   params['input_dir'] = os.path.dirname(os.path.abspath(params['in']))
   params['orig_dir'] = os.path.abspath(os.path.curdir)
 
@@ -60,29 +59,37 @@ def get_params():
   
   parser = argparse.ArgumentParser()
   parser.add_argument('in', type=str, help='input .avs filename to parse.')
-  parser.add_argument('-crf', default=23, type=float, help='crf value to use in libx264.')
-  parser.add_argument('-aqm', default=3, type=int, help='aq-mode to use in libx264.')
-  parser.add_argument('-aqs', default=1.00, type=float, help='aq-strength to use in libx264.')
+  parser.add_argument('-crf', type=float, help='crf value to use in video encoder.')
+  parser.add_argument('-aqm', type=int, help='aq-mode to use in video encoder.')
+  parser.add_argument('-aqs', type=float, help='aq-strength to use in video encoder.')
 
   parser.add_argument('-node', default=-1, type=int, 
     help='computing node that will be sshed into and then used for encoding.')
   parser.add_argument('-nohup', type=str, default=str(), help='filename which will contain stdout, stderr. ' \
     'Also puts the job to background using nohup.')
+
   parser.add_argument('-rs', type=str, help='this option will resize output video. ' \
     'e.g. 1280:720 will give you 720p video. 1280:-1 will give you width of 1280 and height with ' \
     'respective aspect ratio. Same will apply for given height like -1:720')
+  
   parser.add_argument('-dest', type=str, help='this option will create output file to given destination ' \
     'folder name. Files will be created there to begin with rather than moving them to the folder ' \
     'after completion.')
+
   parser.add_argument('-trim', type=int, help='this option will process given trimmed section only ' \
     'while ignoring rest of the video.')
+
   parser.add_argument('-track', type=int, help='this option will process given track id stream only ' \
     'while ignoring rest of the streams.')
-  parser.add_argument('-fr', type=float, help='this option will assume the frame rate for the source file')
+
+  parser.add_argument('-fr', type=float, help='this option will assume the frame rate for the source file.')
+  parser.add_argument('-hevc', action='store_true', help='this option enables HEVC encoding rather than x264.')
+  
   parser.add_argument('-prompt', action='store_true', 
     help='this option will prompt user to confirm before writing to disk.')
   parser.add_argument('-x', action='store_true', 
     help='this option will execute the bash script, if created any, at the end.')
+
   parser.add_argument('-nthread', action='store_true', help='this option will enable multithreading of ffmpegs.')
   parser.add_argument('-vn', action='store_true', help='this option will disable video encoding.')
   parser.add_argument('-an', action='store_true', help='this option will disable audio encoding.')
@@ -246,20 +253,30 @@ def get_frame_rate(filename):
     return filtered['r_frame_rate']
   
 ##################################################################################################
-def get_tracks_indices(filename):
+def get_ffprobe_metadata(filename):
   
-  tracks = dict()
+  metadata = dict()
+
   curr_dir = os.path.abspath(os.path.curdir)
   os.chdir(params['input_dir'])
 
+  tracks = dict()
   for stream_type in ['v', 'a', 's']:
     probe_command = 'ffprobe -v fatal -of flat=s=_ -select_streams %s -show_entries ' \
       'stream=index %s' % (stream_type, os.path.basename(filename))
     result = subprocess.Popen(probe_command, shell=True, stdout=subprocess.PIPE).stdout.read().decode('utf-8')
     tracks[stream_type] = [int(x.replace('\r', '').split('=')[1]) for x in result.split('\n') if x]
 
+  metadata['tracks'] = tracks
+
+  probe_command = 'ffprobe -v fatal -of flat=s=_ -select_streams v -show_entries ' \
+    'stream=width,height %s' % (os.path.basename(filename))
+
+  result = subprocess.Popen(probe_command, shell=True, stdout=subprocess.PIPE).stdout.read().decode('utf-8')
+  metadata['dim'] = [int(x.replace('\r', '').split('=')[1]) for x in result.split('\n') if x]
+  
   os.chdir(curr_dir)
-  return tracks
+  return metadata
 
 ##################################################################################################
 def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
@@ -669,7 +686,37 @@ def handle_chapter_writing(params):
   print('\n'); exit(0)
 
 ##################################################################################################
+def process_encoding_settings(params):
 
+  if not params.get('crf'):
+    
+    if params.get('rs') and len(params['rs']) == 2:
+      resulting_height = int(params['rs'][1])
+    else:
+      resulting_height = params['dim'][1]
+
+    if resulting_height > 900 and resulting_height <= 1100:
+      crf = 23
+    elif resulting_height > 700 and resulting_height <= 900:
+      crf = 21
+    elif resulting_height > 500 and resulting_height <= 700:
+      crf = 19
+    elif resulting_height > 300 and resulting_height <= 500:
+      crf = 18
+
+    if params.get('hevc'):
+      crf -= 2
+
+    params['crf'] = crf
+
+  if not params.get('aqm'):
+    params['aqm'] = 3
+  if not params.get('aqs'):
+    params['aqs'] = 1.00 if not params.get('hevc') else 0.8
+
+  return params
+
+##################################################################################################
 params = get_params()
 times_list = list()
 
@@ -698,14 +745,17 @@ else:
 
   times_list = get_trim_times(params['in'], params['frame_rate'])
 
-tracks = get_tracks_indices(params['source_file'])
+metadata = get_ffprobe_metadata(params['source_file'])
+tracks = metadata['tracks']
+params['dim'] = metadata['dim']
 params['in'] = os.path.basename(params['in'])
-ssh = get_ssh_commands(params)
 
+params = process_encoding_settings(params)
 print('Source:', params['source_file'])
 print(params)
 print('#' * 50)
 
+ssh = get_ssh_commands(params)
 handle_chapter_writing(params)
 
 bash_commands = list() 
