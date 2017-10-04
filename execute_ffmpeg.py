@@ -62,7 +62,7 @@ def get_params():
   parser.add_argument('-crf', type=float, help='crf value to use in video encoder.')
   parser.add_argument('-aqm', type=int, help='aq-mode to use in video encoder.')
   parser.add_argument('-aqs', type=float, help='aq-strength to use in video encoder.')
-
+  
   parser.add_argument('-node', default=-1, type=int, 
     help='computing node that will be sshed into and then used for encoding.')
   parser.add_argument('-nohup', type=str, default=str(), help='filename which will contain stdout, stderr. ' \
@@ -84,6 +84,7 @@ def get_params():
 
   parser.add_argument('-fr', type=float, help='this option will assume the frame rate for the source file.')
   parser.add_argument('-hevc', action='store_true', help='this option enables HEVC encoding rather than x264.')
+  parser.add_argument('-aac', action='store_true', help='this option enables AAC audio encoding rather than OPUS.')
   
   parser.add_argument('-prompt', action='store_true', 
     help='this option will prompt user to confirm before writing to disk.')
@@ -274,7 +275,13 @@ def get_ffprobe_metadata(filename):
 
   result = subprocess.Popen(probe_command, shell=True, stdout=subprocess.PIPE).stdout.read().decode('utf-8')
   metadata['dim'] = [int(x.replace('\r', '').split('=')[1]) for x in result.split('\n') if x]
-  
+
+  probe_command = 'ffprobe -v fatal -of flat=s=_ -select_streams a -show_entries ' \
+    'stream=channels %s' % (os.path.basename(filename))
+
+  result = subprocess.Popen(probe_command, shell=True, stdout=subprocess.PIPE).stdout.read().decode('utf-8')
+  metadata['audio_channels'] = [int(x.replace('\r', '').split('=')[1]) for x in result.split('\n') if x]
+
   os.chdir(curr_dir)
   return metadata
 
@@ -287,7 +294,8 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
     end_format = str(timedelta(seconds=int(end.split('.')[0]), milliseconds=int(end.split('.')[1])))
 
   if params['vn'] and params['sn'] and params['tn'] and not params['an']:
-    temp_name = '%s_%02d.aac' % (params['in'][:-4], command_num + 1)
+    audio_ext = 'aac' if params.get('aac') else 'opus'
+    temp_name = '%s_%02d.%s' % (params['in'][:-4], command_num + 1, audio_ext)
   else:
     temp_name = '%s_%02d.%s' % (params['in'][:-4], command_num + 1, params['source_file'][-3:])
     
@@ -307,18 +315,33 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
   else:
     if params['hevc']:
       video_encoding = '-map 0:v -c:v libx265 -preset slower -x265-params crf=%s:aq-mode=%s:' \
-        'aq-strength=%s' % (params['crf'], params['aqm'], params['aqs'])
+        'aq-strength=%s:subme=5' % (params['crf'], params['aqm'], params['aqs'])
     else:
       video_encoding = '-map 0:v -c:v libx264 -preset veryslow -crf %s -aq-mode %s -aq-strength %s' % (
         params['crf'], params['aqm'], params['aqs'])
 
+    if params.get('frame_rate'):
+      video_encoding += ' -r %.3f' % (params['frame_rate'])
+
   if params['an']:
     audio_encoding = '-an'
   else:
-    if track_id != -1:
-      audio_encoding = '-map 0:%d -c:a libfdk_aac -vbr 4' % (track_id)
+    if params.get('aac'):
+      audio_encoder = '-c:a libfdk_aac -vbr 4'
     else:
-      audio_encoding = '-map 0:a -c:a libfdk_aac -vbr 4'
+      if track_id != -1:
+        channels = params['audio_channels'][params['all_tracks']['a'].index(track_id)]
+        audio_encoder = '-c:a libopus -b:a %d -vbr on -compression_level 10' % (
+          80000 * (channels / 2))
+      else:
+        channels = params['audio_channels'][-1]
+        audio_encoder = '-c:a libopus -b:a %d -vbr on -compression_level 10' % (
+          80000 * (channels / 2))
+
+    if track_id != -1:
+      audio_encoding = '-map 0:%d %s' % (track_id, audio_encoder)
+    else:
+      audio_encoding = '-map 0:a %s' % (audio_encoder)
     
   if params['sn']:
     subtitle_transcoding = '-sn'
@@ -392,7 +415,7 @@ def get_metadata(filename):
   info_command = '%s %s' % (info_command, filename)
 
   result = subprocess.Popen(info_command, shell=True, stdout=subprocess.PIPE).stdout.read().decode('utf-8')
-  
+
   metadata = dict()
   metadata['duration'], suid = [x.replace('\r', '') for x in result.split('\n') if len(x) > 2]
   metadata['suid'] = "{0:X}".format(int(suid))
@@ -492,8 +515,12 @@ def get_names_and_order(times_list, params):
       order = [times_list[0], params['op'], times_list[1], times_list[2]]
 
   elif len(times_list) == 3 and (not params['op'] and params['ed']):
-    names = ['Intro', 'Episode', 'Ending', 'Outro']
-    order = [times_list[0], times_list[1], params['ed'], times_list[2]]
+    if fixed_names and times_list[2][0] - times_list[1][1] > 50:
+      names = fixed_names[:2]; names.append('Ending'); names.extend(fixed_names[2:])
+      order = times_list[:2]; order.append(params['ed']); order.extend(times_list[2:])
+    else:
+      names = ['Intro', 'Episode', 'Ending', 'Outro']
+      order = [times_list[0], times_list[1], params['ed'], times_list[2]]
 
   elif len(times_list) == 3 and (not params['op'] and not params['ed']):
     if fixed_names:
@@ -510,6 +537,20 @@ def get_names_and_order(times_list, params):
     elif fixed_names and times_list[0][0] < 50 and (times_list[1][0] - times_list[0][1]) > 50:
       names = fixed_names[:1]; names.append('Opening'); names.extend(fixed_names[1:])
       order = times_list[:1]; order.append(params['op']); order.extend(times_list[1:])
+    elif fixed_names and times_list[0][0] < 50 and (times_list[1][0] - times_list[0][1]) < 1 \
+      and (times_list[2][0] - times_list[1][1]) > 50:
+      names = fixed_names[:2]; names.append('Opening'); names.extend(fixed_names[2:])
+      order = times_list[:2]; order.append(params['op']); order.extend(times_list[2:])
+
+  elif len(times_list) == 4 and (not params['op'] and not params['ed']):
+    if fixed_names:
+      names = fixed_names
+      order = times_list
+
+  elif len(times_list) == 5 and (params['op'] and not params['ed']):
+    if fixed_names and times_list[1][0] - times_list[0][1] > 50:
+      names = fixed_names[:1]; names.append('Opening'); names.extend(fixed_names[1:])
+      order = times_list[:1]; order.append(params['op']); order.extend(times_list[1:])
 
   return names, order
 
@@ -517,7 +558,7 @@ def get_names_and_order(times_list, params):
 def get_chapter_content(times_list, params):
   
   import chameleon
-  
+
   edition = {
     'default': 1, 
     'oc': 1 if params['op'] or params['ed'] else 0, 
@@ -539,16 +580,27 @@ def get_chapter_content(times_list, params):
   last_timestamp = None
   
   for num, item in enumerate(order):
+
     atom = dict()
     atom['uid'] = str(time.time() + num).replace('.', '')
     atom['hidden'] = 0; atom['enabled'] = 1
 
     if isinstance(item, dict):
-      atom['start'] = '%02d:%02d:%02d.%09d' % (0, 0, 0, 0)
+      atom['start'] = '%02d:%02d:%02d.%09d' % (0, 0, 0, 0)  
+      # atom['end'] = ':'.join(item['duration'].split(':')[:-1]) + ':' + 
+      #   str(float(item['duration'].split(':')[-1]) - 1.25)
       atom['end'] = item['duration']
       atom['suid'] = item['suid']
 
     elif isinstance(item, (tuple, list)):
+      continuous = False
+
+      try:
+        if abs(order[num - 1][1] - item[0]) < 1:
+          continuous = True
+      except:
+        pass
+
       print(item, end=' -> ')
       if 'episode' in names[num].lower() and 'intro' not in names:
         item = (float('%.3f' % (item[0] - item[0])), float('%.3f' % (item[1] - item[0])))
@@ -556,17 +608,29 @@ def get_chapter_content(times_list, params):
       if last_timestamp:
         diff = item[1] - item[0]
 
-        calculated_start = last_timestamp + 1 / params['frame_rate']
-        calculated_end = calculated_start + diff
+        if not continuous:
+          calculated_start = last_timestamp + 1 / params['frame_rate']
+        else:
+          calculated_start = last_timestamp
+        calculated_end = calculated_start + diff - (1 / params['frame_rate'])
 
         item = (float('%.3f' % (calculated_start)), float('%.3f' % (calculated_end)))
 
+      # try:
+      #   if isinstance(order[num + 1], dict):
+      #     item = (item[0], float('%.3f' % (item[1] - (2 / params['frame_rate']))))
+      # except:
+      #   pass
+      
       print(item)
+      offset = 1 if continuous else 0
+      # offset = 0
+
       atom['start'] = str(timedelta(seconds=int(str(item[0]).split('.')[0]), 
         milliseconds=int(str(item[0]).split('.')[1].ljust(3, '0'))))
       atom['end'] = str(timedelta(seconds=int(str(item[1]).split('.')[0]), 
-        milliseconds=int(str(item[1]).split('.')[1].ljust(3, '0')) - 1))
-
+        milliseconds=int(str(item[1]).split('.')[1].ljust(3, '0')) - offset))
+      
       last_timestamp = item[1]
 
     atom['ch-string'] = names[num]
@@ -747,7 +811,9 @@ else:
 
 metadata = get_ffprobe_metadata(params['source_file'])
 tracks = metadata['tracks']
+params['all_tracks'] = metadata['tracks']
 params['dim'] = metadata['dim']
+params['audio_channels'] = metadata['audio_channels']
 params['in'] = os.path.basename(params['in'])
 
 params = process_encoding_settings(params)
@@ -772,7 +838,9 @@ else:
 
 if len(tracks['a']) > 1 and not params.get('track') and not params.get('an'):
   for track_id in tracks['a']:
-    python_command = 'python3 %s %s -track %d -hi -x' % (__file__, params['in'], track_id)
+    audio_options = '-hi -aac' if params.get('aac') else str()
+    python_command = 'python3 %s %s -track %d %s -nthread -x' % (__file__, params['in'], 
+      track_id, audio_options)
     start_external_execution(python_command)
 
   exit(0)
@@ -784,10 +852,12 @@ if params.get('track'):
     params['vn'], params['sn'], params['tn'] = (True, True, True)
 
 if params['vn'] and params['sn'] and params['tn'] and not params['an']:
+  audio_ext = 'aac' if params.get('aac') else 'opus'
+
   if params.get('track'):
-    out_name = '%s_Audio_%d.aac' % (params['in'][:-4], params['track'])
+    out_name = '%s_Audio_%d.%s' % (params['in'][:-4], params['track'], audio_ext)
   else:
-    out_name = '%s_Audio_%d.aac' % (params['in'][:-4], tracks['a'][0])
+    out_name = '%s_Audio_%d.%s' % (params['in'][:-4], tracks['a'][0], audio_ext)
 elif not params['vn'] and params['sn'] and params['an'] and params['tn']:
   out_name = '%s_Encoded.mkv' % (params['in'][:-4])
 elif not params['vn'] and not params['sn'] and not params['an']:
