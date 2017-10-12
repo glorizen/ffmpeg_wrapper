@@ -296,6 +296,9 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
   if params['vn'] and params['sn'] and params['tn'] and not params['an']:
     audio_ext = 'aac' if params.get('aac') else 'opus'
     temp_name = '%s_%02d.%s' % (params['in'][:-4], command_num + 1, audio_ext)
+  elif params['vn'] and params['an'] and params['tn'] and not params['sn']:
+    subtitle_ext = 'ass'
+    temp_name = '%s_%02d.%s' % (params['in'][:-4], command_num + 1, subtitle_ext)
   else:
     temp_name = '%s_%02d.%s' % (params['in'][:-4], command_num + 1, params['source_file'][-3:])
     
@@ -338,7 +341,7 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
         audio_encoder = '-c:a libopus -b:a %d -vbr on -compression_level 10' % (
           80000 * (channels / 2))
 
-    if track_id != -1:
+    if track_id is not -1:
       audio_encoding = '-map 0:%d %s' % (track_id, audio_encoder)
     else:
       audio_encoding = '-map 0:a %s' % (audio_encoder)
@@ -346,7 +349,10 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
   if params['sn']:
     subtitle_transcoding = '-sn'
   else:
-    subtitle_transcoding = '-map 0:s'
+    if track_id is not -1:
+      subtitle_transcoding = '-map 0:%d -c:s copy'
+    else:
+      subtitle_transcoding = '-map 0:s -c:s copy'
     
   if params['tn']:
     attachments = str()
@@ -845,11 +851,18 @@ if len(tracks['a']) > 1 and not params.get('track') and not params.get('an'):
 
   exit(0)
 
+elif len(tracks['s']) > 1 and not params.get('track') and not params.get('sn'):
+  for track_id in tracks['s']:
+    python_command = 'python3 %s %s -track %d -nthread -x' % (__file__, params['in'],
+      track_id)
+
 if params.get('track'):
   if params['track'] in tracks['v']:
     params['an'], params['sn'], params['tn'] = (True, True, True)
   elif params['track'] in tracks['a']:
     params['vn'], params['sn'], params['tn'] = (True, True, True)
+  elif params['track'] in tracks['s']:
+    params['vn'], params['an'], params['tn'] = (True, True, True)
 
 if params['vn'] and params['sn'] and params['tn'] and not params['an']:
   audio_ext = 'aac' if params.get('aac') else 'opus'
@@ -858,6 +871,11 @@ if params['vn'] and params['sn'] and params['tn'] and not params['an']:
     out_name = '%s_Audio_%d.%s' % (params['in'][:-4], params['track'], audio_ext)
   else:
     out_name = '%s_Audio_%d.%s' % (params['in'][:-4], tracks['a'][0], audio_ext)
+elif params['vn'] and params['an'] and params['tn'] and not params['sn']:
+  if params.get('track'):
+    out_name = '%s_Subtitle_final_%d.ass' % (params['in'][:-4], params['track'])
+  else:
+    out_name = '%s_Subtitle_final_%d.ass' % (params['in'][:-4], tracks['s'][0])
 elif not params['vn'] and params['sn'] and params['an'] and params['tn']:
   out_name = '%s_Encoded.mkv' % (params['in'][:-4])
 elif not params['vn'] and not params['sn'] and not params['an']:
@@ -889,9 +907,17 @@ else:
       ffmpeg = get_ffmpeg_command(params, times, num)
     
     if params.get('trim') and params['trim'] == num + 1:
-      add_external_commands(ffmpeg,'bw')
+      add_external_commands(ffmpeg, 'bw')
     elif not params.get('trim'):
       add_external_commands(ffmpeg)
+      
+      if params['vn'] and params['an'] and not params['sn']:
+        start = '%.3f' % (times[0]); end = '%.3f' % (times[1])
+        start_format = str(timedelta(seconds=int(start.split('.')[0]), milliseconds=int(start.split('.')[1])))
+        end_format = str(timedelta(seconds=int(end.split('.')[0]), milliseconds=int(end.split('.')[1])))
+        dialogue_line = 'Dialogue: 0,{0:s},{0:s},Default,,0000,0000,0000,,'.format(end_format[:-3])
+        time_append_command = 'echo "%s" >> %s' % (dialogue_line, ffmpeg['temp_name'])
+        add_external_commands({'command': time_append_command}, 'b')
       
 bash_commands.extend(wait_commands)
 
