@@ -787,185 +787,201 @@ def process_encoding_settings(params):
   return params
 
 ##################################################################################################
-params = get_params()
-times_list = list()
-
-if not params['in'].endswith('.avs'):
-  params['avs'] = False
-  print('Not an avscript. [Skipping custom commands processing from the given input]')
-  params['source_file'] = params['in']
-else:
-  params['avs'] = True
-  commands = get_custom_commands(params['in'])
+if __name__ == '__main__':
   
-  if commands.get('input'):
-    params['source_file'] = os.path.join(os.path.dirname(params['in']), commands['input'])
-  else:
-    params['source_file'] = get_source(params['in'])
+  params = get_params()
+  times_list = list()
 
-  params['avs_chapters'] = commands.get('avs_chapters')
-
-  if params.get('fr'):
-    params['frame_rate'] = params['fr']
+  if not params['in'].endswith('.avs'):
+    params['avs'] = False
+    print('Not an avscript. [Skipping custom commands processing from the given input]')
+    params['source_file'] = params['in']
   else:
-    if commands.get('frame_rate'):
-      params['frame_rate'] = float(commands['frame_rate'])
+    params['avs'] = True
+    commands = get_custom_commands(params['in'])
+    
+    if commands.get('input'):
+      params['source_file'] = os.path.join(os.path.dirname(params['in']), commands['input'])
     else:
-      params['frame_rate'] = get_frame_rate(params['source_file'])
+      params['source_file'] = get_source(params['in'])
 
-  times_list = get_trim_times(params['in'], params['frame_rate'])
+    params['avs_chapters'] = commands.get('avs_chapters')
 
-metadata = get_ffprobe_metadata(params['source_file'])
-tracks = metadata['tracks']
-params['all_tracks'] = metadata['tracks']
-params['dim'] = metadata['dim']
-params['audio_channels'] = metadata['audio_channels']
-params['in'] = os.path.basename(params['in'])
+    if params.get('fr'):
+      params['frame_rate'] = params['fr']
+    else:
+      if commands.get('frame_rate'):
+        params['frame_rate'] = float(commands['frame_rate'])
+      else:
+        params['frame_rate'] = get_frame_rate(params['source_file'])
 
-params = process_encoding_settings(params)
-print('Source:', params['source_file'])
-print(params)
-print('#' * 50)
+    times_list = get_trim_times(params['in'], params['frame_rate'])
 
-ssh = get_ssh_commands(params)
-handle_chapter_writing(params)
+  metadata = get_ffprobe_metadata(params['source_file'])
+  tracks = metadata['tracks']
+  params['all_tracks'] = metadata['tracks']
+  params['dim'] = metadata['dim']
+  params['audio_channels'] = metadata['audio_channels']
+  params['in'] = os.path.basename(params['in'])
 
-bash_commands = list() 
-wait_commands = list()
-concat_commands = list()
-temp_filenames = list()
+  params = process_encoding_settings(params)
+  print('Source:', params['source_file'])
+  print(params)
+  print('#' * 50)
 
-if params['rs']:
-  bash_filename = '%s_%s_%s.sh' % (params['in'][:-4], params['rs'][0], params['rs'][1])
-  concat_filename = '%s_%s_%s.txt' % (params['in'][:-4], params['rs'][0], params['rs'][1])
-else:
-  bash_filename = '%s.sh' % (params['in'][:-4])
-  concat_filename = '%s.txt' % (params['in'][:-4])
+  ssh = get_ssh_commands(params)
+  handle_chapter_writing(params)
 
-if len(tracks['a']) > 1 and not params.get('track') and not params.get('an'):
-  for track_id in tracks['a']:
-    audio_options = '-hi -aac' if params.get('aac') else str()
-    python_command = 'python3 %s %s -track %d %s -nthread -x' % (__file__, params['in'], 
-      track_id, audio_options)
-    start_external_execution(python_command)
+  bash_commands = list() 
+  wait_commands = list()
+  concat_commands = list()
+  temp_filenames = list()
 
-  exit(0)
-
-elif len(tracks['s']) > 1 and not params.get('track') and not params.get('sn'):
-  for track_id in tracks['s']:
-    python_command = 'python3 %s %s -track %d -nthread -x' % (__file__, params['in'],
-      track_id)
-
-if params.get('track'):
-  if params['track'] in tracks['v']:
-    params['an'], params['sn'], params['tn'] = (True, True, True)
-  elif params['track'] in tracks['a']:
-    params['vn'], params['sn'], params['tn'] = (True, True, True)
-  elif params['track'] in tracks['s']:
-    params['vn'], params['an'], params['tn'] = (True, True, True)
-
-if params['vn'] and params['sn'] and params['tn'] and not params['an']:
-  audio_ext = 'aac' if params.get('aac') else 'opus'
-
-  if params.get('track'):
-    out_name = '%s_Audio_%d.%s' % (params['in'][:-4], params['track'], audio_ext)
-  else:
-    out_name = '%s_Audio_%d.%s' % (params['in'][:-4], tracks['a'][0], audio_ext)
-elif params['vn'] and params['an'] and params['tn'] and not params['sn']:
-  if params.get('track'):
-    out_name = '%s_Subtitle_final_%d.ass' % (params['in'][:-4], params['track'])
-  else:
-    out_name = '%s_Subtitle_final_%d.ass' % (params['in'][:-4], tracks['s'][0])
-elif not params['vn'] and params['sn'] and params['an'] and params['tn']:
-  out_name = '%s_Encoded.mkv' % (params['in'][:-4])
-elif not params['vn'] and not params['sn'] and not params['an']:
-  out_name = '%s_Encoded.mkv' % (params['in'][:-4])
-else:
-  out_name = '%s_Encoded_%s.mkv' % (params['in'][:-4], str(time.time()).replace('.', ''))
-
-if params['dest']:
-  out_name = '"%s"' % (os.path.join(params['dest'], out_name))
-
-bash_commands.append(ssh['login']) if ssh['login'] else str()
-bash_commands.append(ssh['chdir']) if ssh['chdir'] else str()
-
-if (params['avs'] and not times_list) or not params['avs'] or len(times_list) == 1:
-  times = times_list[0] if len(times_list) == 1 else list()
+  if params['rs']:
+    bash_filename = '%s_%s_%s.sh' % (params['in'][:-4], params['rs'][0], params['rs'][1])
+    concat_filename = '%s_%s_%s.txt' % (params['in'][:-4], params['rs'][0], params['rs'][1])
   
-  if params.get('track'):
-    ffmpeg = get_ffmpeg_command(params, times, is_out=out_name, track_id=params['track'])
   else:
-    ffmpeg = get_ffmpeg_command(params, times, is_out=out_name)
-  add_external_commands(ffmpeg, 'bw')
+    bash_filename = '%s.sh' % (params['in'][:-4])
+    concat_filename = '%s.txt' % (params['in'][:-4])
+
+  if len(tracks['a']) > 1 and not params.get('track') and not params.get('an'):
+    for track_id in tracks['a']:
+      audio_options = '-hi -aac' if params.get('aac') else str()
+      python_command = 'python3 %s %s -track %d %s -nthread -x' % (__file__, params['in'], 
+        track_id, audio_options)
+      start_external_execution(python_command)
+
+    exit(0)
+
+  elif len(tracks['s']) > 1 and not params.get('track') and not params.get('sn'):
+    for track_id in tracks['s']:
+      python_command = 'python3 %s %s -track %d -nthread -x' % (__file__, params['in'],
+        track_id)
+
+  if params.get('track'):
+    
+    if params['track'] in tracks['v']:
+      params['an'], params['sn'], params['tn'] = (True, True, True)
+    elif params['track'] in tracks['a']:
+      params['vn'], params['sn'], params['tn'] = (True, True, True)
+    elif params['track'] in tracks['s']:
+      params['vn'], params['an'], params['tn'] = (True, True, True)
+
+  if params['vn'] and params['sn'] and params['tn'] and not params['an']:
+    audio_ext = 'aac' if params.get('aac') else 'opus'
+
+    if params.get('track'):
+      out_name = '%s_Audio_%d.%s' % (params['in'][:-4], params['track'], audio_ext)
+    else:
+      out_name = '%s_Audio_%d.%s' % (params['in'][:-4], tracks['a'][0], audio_ext)
   
-else:
-  for num, times in enumerate(times_list):
+  elif params['vn'] and params['an'] and params['tn'] and not params['sn']:
     
     if params.get('track'):
-      ffmpeg = get_ffmpeg_command(params, times, num, track_id=params['track'])
+      out_name = '%s_Subtitle_final_%d.ass' % (params['in'][:-4], params['track'])
     else:
-      ffmpeg = get_ffmpeg_command(params, times, num)
+      out_name = '%s_Subtitle_final_%d.ass' % (params['in'][:-4], tracks['s'][0])
+  
+  elif not params['vn'] and params['sn'] and params['an'] and params['tn']:
+    out_name = '%s_Encoded.mkv' % (params['in'][:-4])
+  
+  elif not params['vn'] and not params['sn'] and not params['an']:
+    out_name = '%s_Encoded.mkv' % (params['in'][:-4])
+  
+  else:
+    out_name = '%s_Encoded_%s.mkv' % (params['in'][:-4], str(time.time()).replace('.', ''))
+
+  if params['dest']:
+    out_name = '"%s"' % (os.path.join(params['dest'], out_name))
+
+  bash_commands.append(ssh['login']) if ssh['login'] else str()
+  bash_commands.append(ssh['chdir']) if ssh['chdir'] else str()
+
+  if (params['avs'] and not times_list) or not params['avs'] or len(times_list) == 1:
+    times = times_list[0] if len(times_list) == 1 else list()
     
-    if params.get('trim') and params['trim'] == num + 1:
-      add_external_commands(ffmpeg, 'bw')
-    elif not params.get('trim'):
-      add_external_commands(ffmpeg)
+    if params.get('track'):
+      ffmpeg = get_ffmpeg_command(params, times, is_out=out_name, track_id=params['track'])
+    
+    else:
+      ffmpeg = get_ffmpeg_command(params, times, is_out=out_name)
+    add_external_commands(ffmpeg, 'bw')
+    
+  else:
+    for num, times in enumerate(times_list):
       
-      if params['vn'] and params['an'] and not params['sn']:
-        start = '%.3f' % (times[0]); end = '%.3f' % (times[1])
-        start_format = str(timedelta(seconds=int(start.split('.')[0]), milliseconds=int(start.split('.')[1])))
-        end_format = str(timedelta(seconds=int(end.split('.')[0]), milliseconds=int(end.split('.')[1])))
-        dialogue_line = 'Dialogue: 0,{0:s},{0:s},Default,,0000,0000,0000,,'.format(end_format[:-3])
-        time_append_command = 'echo "%s" >> %s' % (dialogue_line, ffmpeg['temp_name'])
-        add_external_commands({'command': time_append_command}, 'b')
+      if params.get('track'):
+        ffmpeg = get_ffmpeg_command(params, times, num, track_id=params['track'])
       
-bash_commands.extend(wait_commands)
+      else:
+        ffmpeg = get_ffmpeg_command(params, times, num)
+      
+      if params.get('trim') and params['trim'] == num + 1:
+        add_external_commands(ffmpeg, 'bw')
+      
+      elif not params.get('trim'):
+        add_external_commands(ffmpeg)
+        
+        if params['vn'] and params['an'] and not params['sn']:
+          start = '%.3f' % (times[0]); end = '%.3f' % (times[1])
+          start_format = str(timedelta(seconds=int(start.split('.')[0]), milliseconds=int(start.split('.')[1])))
+          end_format = str(timedelta(seconds=int(end.split('.')[0]), milliseconds=int(end.split('.')[1])))
+          dialogue_line = 'Dialogue: 0,{0:s},{0:s},Default,,0000,0000,0000,,'.format(end_format[:-3])
+          time_append_command = 'echo "%s" >> %s' % (dialogue_line, ffmpeg['temp_name'])
+          add_external_commands({'command': time_append_command}, 'b')
+        
+  bash_commands.extend(wait_commands)
 
-if params['avs'] and len(times_list) > 1 and not params['trim']:
-  bash_commands.append('ffmpeg -v fatal -f concat -i %s -map :v? -c:v copy -map :a? -c:a copy ' \
-    '-map :s? -c:s copy -map 0:t? %s & PID%02d=$!' % (concat_filename, out_name, len(times_list) + 1))
-  bash_commands.append('wait $PID%02d' % (len(times_list) + 1))
+  if params['avs'] and len(times_list) > 1 and not params['trim']:
+    bash_commands.append('ffmpeg -v fatal -f concat -i %s -map :v? -c:v copy -map :a? -c:a copy ' \
+      '-map :s? -c:s copy -map 0:t? %s & PID%02d=$!' % (concat_filename, out_name, len(times_list) + 1))
+    
+    bash_commands.append('wait $PID%02d' % (len(times_list) + 1))
 
-bash_commands.extend(['rm %s & echo Deleted File: %s' % (x, x) for x in temp_filenames])
-bash_commands.append('rm %s' % (bash_filename))
-bash_commands.append('rm %s' % (concat_filename)) if len(times_list) > 1 else None
-bash_commands.append(ssh['logout']) if ssh['logout'] else str()
+  bash_commands.extend(['rm %s & echo Deleted File: %s' % (x, x) for x in temp_filenames])
+  bash_commands.append('rm %s' % (bash_filename))
+  bash_commands.append('rm %s' % (concat_filename)) if len(times_list) > 1 else None
+  bash_commands.append(ssh['logout']) if ssh['logout'] else str()
 
-if params['mx']:
+  if params['mx']:
 
-  video_name = str(); audio_name = str(); sub_name = str();
+    video_name = str(); audio_name = str(); sub_name = str();
 
-  if 'v' in params['mx']:
-    video_string = '-i %s_Encoded.mkv' % (params['in'][:-4])
-  if 'a' in params['mx']:
-    audio_string = '-i %s_Audio_%d.aac' % (params['in'][:-4], tracks['a'][0])
-  if 's' in params['mx']:
-    sub_string = '-i %s_Subtitle_final_%d.aac' % (params['in'][:-4], tracks['s'][0])
-  if 'c' in params['mx']:
-    ch_string = '-map_chapters -1'
+    if 'v' in params['mx']:
+      video_string = '-i %s_Encoded.mkv' % (params['in'][:-4])
+    
+    if 'a' in params['mx']:
+      audio_string = '-i %s_Audio_%d.aac' % (params['in'][:-4], tracks['a'][0])
+    
+    if 's' in params['mx']:
+      sub_string = '-i %s_Subtitle_final_%d.aac' % (params['in'][:-4], tracks['s'][0])
+    
+    if 'c' in params['mx']:
+      ch_string = '-map_chapters -1'
 
-  command = 'ffmpeg %s %s %s -map 0:v? -c:v copy -map 1:a? -c:a copy -map 2:s? -c:s copy ' \
-    '-map 3:t? %s test000.mkv' % (video_string, audio_string, sub_string, ch_string)
+    command = 'ffmpeg %s %s %s -map 0:v? -c:v copy -map 1:a? -c:a copy -map 2:s? -c:s copy ' \
+      '-map 3:t? %s test000.mkv' % (video_string, audio_string, sub_string, ch_string)
 
-  bash_commands.append(command)
+    bash_commands.append(command)
 
-if params['prompt']:
-  handle_display(bash_commands, bash_filename, concat_commands, concat_filename)
-  handle_prompt()
+  if params['prompt']:
+    handle_display(bash_commands, bash_filename, concat_commands, concat_filename)
+    handle_prompt()
 
-print(os.path.abspath(os.path.curdir))
-if params['avs'] and len(times_list) > 1:
-  open(concat_filename, 'w').writelines([x + '\n' for x in concat_commands])
-  
-open(bash_filename, 'w').writelines([x + '\n' for x in bash_commands])
+  print(os.path.abspath(os.path.curdir))
+  if params['avs'] and len(times_list) > 1:
+    open(concat_filename, 'w').writelines([x + '\n' for x in concat_commands])
+    
+  open(bash_filename, 'w').writelines([x + '\n' for x in bash_commands])
 
-if params['x']:
-  handle_execution(params, bash_filename)
-  
-  print('=' * 60)
-  print('Removed script: %s' % (bash_filename))
-  print('Removed concate file: %s' % (concat_filename)) if len(times_list) > 1 else None
-  print('=' * 60 + '\n')
+  if params['x']:
+    handle_execution(params, bash_filename)
+    
+    print('=' * 60)
+    print('Removed script: %s' % (bash_filename))
+    print('Removed concate file: %s' % (concat_filename)) if len(times_list) > 1 else None
+    print('=' * 60 + '\n')
 
-else:
-  print('Bash script created, but not executed: %s' % (bash_filename))
+  else:
+    print('Bash script created, but not executed: %s' % (bash_filename))
