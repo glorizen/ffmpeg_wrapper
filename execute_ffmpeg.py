@@ -4,6 +4,8 @@ import time
 import argparse
 import subprocess
 from datetime import timedelta
+
+import pysubs
 from frame_rate import source_from_avscript
 
 CH_TEMPLATE_STRING = \
@@ -78,6 +80,8 @@ def get_params():
 
   parser.add_argument('-trim', type=int, help='this option will process given trimmed section only ' \
     'while ignoring rest of the video.')
+
+  parser.add_argument('-subtrim', action='store_true', help='this option will trim subtitles using pysubs.')
 
   parser.add_argument('-track', type=int, help='this option will process given track id stream only ' \
     'while ignoring rest of the streams.')
@@ -350,7 +354,7 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
     subtitle_transcoding = '-sn'
   else:
     if track_id is not -1:
-      subtitle_transcoding = '-map 0:%d -c:s copy'
+      subtitle_transcoding = '-map 0:%d -c:s copy' % (track_id)
     else:
       subtitle_transcoding = '-map 0:s -c:s copy'
     
@@ -376,7 +380,7 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
     threading = str()
     PID = str()
   
-  if times:
+  if times and not temp_name.endswith('ass'):
     ffmpeg_command = '%s -i %s -vsync 1 -ss %s -to %s %s %s %s %s %s %s %s %s' % (ffmpeg_version, 
       params['source_file'], start_format, end_format, video_encoding, audio_encoding, 
       subtitle_transcoding, attachments, chapter_attachment, video_scaling, temp_name, threading)
@@ -787,6 +791,58 @@ def process_encoding_settings(params):
   return params
 
 ##################################################################################################
+def handle_subtitle_trimming(params, subtitle_filename):
+  print(params.get('in'))
+  print(subtitle_filename)
+
+  subtitle_times = list()
+  for times in times_list:
+    start_time = str(timedelta(seconds=int(str(times[0]).split('.')[0]), 
+        milliseconds=int(str(times[0]).split('.')[1].ljust(3, '0'))))
+    
+    end_time = str(timedelta(seconds=int(str(times[1]).split('.')[0]),
+                             milliseconds=int(str(times[1]).split('.')[1].ljust(3, '0'))))
+  
+    subtitle_times.append((pysubs.misc.Time(start_time), pysubs.misc.Time(end_time)))
+
+  print(subtitle_times)
+  subs = pysubs.SSAFile()
+  subs.from_file(subtitle_filename, encoding='utf8')
+
+  new_subs = pysubs.SSAFile()
+  new_subs.info = subs.info.copy()
+  new_subs.styles = subs.styles.copy()
+  new_subs.fonts = subs.fonts.copy()
+
+  shift = pysubs.misc.Time('00:00:00.000')
+  for (index, times) in enumerate(subtitle_times):
+    if index > 0:
+      shift += times[0] - subtitle_times[index - 1][1]
+      shifting_time = [-x for x in shift.to_times()]
+
+    for line in subs:
+      new_line = None
+
+      if line.start >= times[0] and line.end <= times[1]:
+        new_line = line.copy()
+      if line.start < times[0] and line.end > times[1]:
+        new_line = line.copy()
+        new_line.start = times[0]
+      if line.start > times[0] and line.end > times[1]:
+        new_line = line.copy()
+        new_line.end = times[1]
+
+      if shift > pysubs.misc.Time('00:00:00.000') and new_line:
+        new_line.shift(s=shifting_time[2], ms=shifting_time[3], m=shifting_time[1], h=shifting_time[0])
+
+      if new_line:
+        new_subs.events.append(new_line)
+
+  new_subs.save(subtitle_filename + 'v2.ass')
+  exit(0)
+
+
+##################################################################################################
 if __name__ == '__main__':
   
   params = get_params()
@@ -895,6 +951,8 @@ if __name__ == '__main__':
   if params['dest']:
     out_name = '"%s"' % (os.path.join(params['dest'], out_name))
 
+  handle_subtitle_trimming(params, out_name)
+
   bash_commands.append(ssh['login']) if ssh['login'] else str()
   bash_commands.append(ssh['chdir']) if ssh['chdir'] else str()
 
@@ -906,6 +964,7 @@ if __name__ == '__main__':
     
     else:
       ffmpeg = get_ffmpeg_command(params, times, is_out=out_name)
+    
     add_external_commands(ffmpeg, 'bw')
     
   else:
@@ -914,6 +973,9 @@ if __name__ == '__main__':
       if params.get('track'):
         ffmpeg = get_ffmpeg_command(params, times, num, track_id=params['track'])
       
+      elif out_name.endswith('ass'):
+        ffmpeg = get_ffmpeg_command(params, times, num, is_out=out_name)
+
       else:
         ffmpeg = get_ffmpeg_command(params, times, num)
       
@@ -923,25 +985,28 @@ if __name__ == '__main__':
       elif not params.get('trim'):
         add_external_commands(ffmpeg)
         
-        if params['vn'] and params['an'] and not params['sn']:
-          start = '%.3f' % (times[0]); end = '%.3f' % (times[1])
-          start_format = str(timedelta(seconds=int(start.split('.')[0]), milliseconds=int(start.split('.')[1])))
-          end_format = str(timedelta(seconds=int(end.split('.')[0]), milliseconds=int(end.split('.')[1])))
-          dialogue_line = 'Dialogue: 0,{0:s},{0:s},Default,,0000,0000,0000,,'.format(end_format[:-3])
-          time_append_command = 'echo "%s" >> %s' % (dialogue_line, ffmpeg['temp_name'])
-          add_external_commands({'command': time_append_command}, 'b')
-        
+        # if params['vn'] and params['an'] and not params['sn']:
+          # start = '%.3f' % (times[0]); end = '%.3f' % (times[1])
+          # start_format = str(timedelta(seconds=int(start.split('.')[0]), milliseconds=int(start.split('.')[1])))
+          # end_format = str(timedelta(seconds=int(end.split('.')[0]), milliseconds=int(end.split('.')[1])))
+          # dialogue_line = 'Dialogue: 0,{0:s},{0:s},Default,,0000,0000,0000,,'.format(end_format[:-3])
+          # time_append_command = 'echo "%s" >> %s' % (dialogue_line, ffmpeg['temp_name'])
+          # add_external_commands({'command': time_append_command}, 'b')
+
+      if out_name.endswith('ass'):
+        break
+
   bash_commands.extend(wait_commands)
 
-  if params['avs'] and len(times_list) > 1 and not params['trim']:
+  if params['avs'] and len(times_list) > 1 and not params['trim'] and not out_name.endswith('ass'):
     bash_commands.append('ffmpeg -v fatal -f concat -i %s -map :v? -c:v copy -map :a? -c:a copy ' \
       '-map :s? -c:s copy -map 0:t? %s & PID%02d=$!' % (concat_filename, out_name, len(times_list) + 1))
     
     bash_commands.append('wait $PID%02d' % (len(times_list) + 1))
+    bash_commands.extend(['rm %s & echo Deleted File: %s' % (x, x) for x in temp_filename])
 
-  bash_commands.extend(['rm %s & echo Deleted File: %s' % (x, x) for x in temp_filenames])
-  bash_commands.append('rm %s' % (bash_filename))
   bash_commands.append('rm %s' % (concat_filename)) if len(times_list) > 1 else None
+  bash_commands.append('rm %s' % (bash_filename))
   bash_commands.append(ssh['logout']) if ssh['logout'] else str()
 
   if params['mx']:
