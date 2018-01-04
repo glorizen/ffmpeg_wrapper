@@ -792,8 +792,9 @@ def process_encoding_settings(params):
 
 ##################################################################################################
 def handle_subtitle_trimming(params, subtitle_filename):
-  print(params.get('in'))
-  print(subtitle_filename)
+
+  print('#' * 50)
+  print('Trimming [%s] using [%s]' % (subtitle_filename, params['in']))
 
   subtitle_times = list()
   for times in times_list:
@@ -805,7 +806,6 @@ def handle_subtitle_trimming(params, subtitle_filename):
   
     subtitle_times.append((pysubs.misc.Time(start_time), pysubs.misc.Time(end_time)))
 
-  print(subtitle_times)
   subs = pysubs.SSAFile()
   subs.from_file(subtitle_filename, encoding='utf8')
 
@@ -820,27 +820,41 @@ def handle_subtitle_trimming(params, subtitle_filename):
       shift += times[0] - subtitle_times[index - 1][1]
       shifting_time = [-x for x in shift.to_times()]
 
+    elif index == 0:
+      shift += subtitle_times[index][0] - pysubs.misc.Time('00:00:00.000')
+      shifting_time = [-x for x in shift.to_times()]
+
+    line_prints = 0
     for line in subs:
       new_line = None
 
       if line.start >= times[0] and line.end <= times[1]:
         new_line = line.copy()
-      if line.start < times[0] and line.end > times[1]:
+
+      if line.start < times[0] < line.end:
         new_line = line.copy()
         new_line.start = times[0]
-      if line.start > times[0] and line.end > times[1]:
+
+      if line.start < times[1] < line.end:
         new_line = line.copy()
         new_line.end = times[1]
 
-      if shift > pysubs.misc.Time('00:00:00.000') and new_line:
-        new_line.shift(s=shifting_time[2], ms=shifting_time[3], m=shifting_time[1], h=shifting_time[0])
+      if line.start < times[0] < times[1] < line.end:
+        new_line = line.copy()
+        new_line.start = times[0]
+        new_line.end = times[1]
 
+      if shift > pysubs.misc.Time('00:00:00.000') and new_line:        
+        new_line.shift(
+          s=shifting_time[2], ms=shifting_time[3],
+          m=shifting_time[1], h=shifting_time[0])
+        
       if new_line:
         new_subs.events.append(new_line)
 
-  new_subs.save(subtitle_filename + 'v2.ass')
-  exit(0)
-
+  new_subs.save(subtitle_filename)
+  print('Trimmed file written to: [%s]' % (subtitle_filename))
+  print('#' * 50)
 
 ##################################################################################################
 if __name__ == '__main__':
@@ -914,6 +928,7 @@ if __name__ == '__main__':
     for track_id in tracks['s']:
       python_command = 'python3 %s %s -track %d -nthread -x' % (__file__, params['in'],
         track_id)
+      start_external_execution(python_command)
 
   if params.get('track'):
     
@@ -951,7 +966,12 @@ if __name__ == '__main__':
   if params['dest']:
     out_name = '"%s"' % (os.path.join(params['dest'], out_name))
 
-  handle_subtitle_trimming(params, out_name)
+  if params.get('subtrim'):
+    for track_id in tracks['s']:
+      subtitle_filename = '%s_Subtitle_final_%d.ass' % (params['in'][:-4], track_id)
+      handle_subtitle_trimming(params, subtitle_filename)
+    
+    exit(0)
 
   bash_commands.append(ssh['login']) if ssh['login'] else str()
   bash_commands.append(ssh['chdir']) if ssh['chdir'] else str()
@@ -970,9 +990,12 @@ if __name__ == '__main__':
   else:
     for num, times in enumerate(times_list):
       
-      if params.get('track'):
+      if params.get('track') and not out_name.endswith('ass'):
         ffmpeg = get_ffmpeg_command(params, times, num, track_id=params['track'])
       
+      elif params.get('track') and out_name.endswith('ass'):
+        ffmpeg = get_ffmpeg_command(params, times, num, track_id=params['track'], is_out=out_name)
+
       elif out_name.endswith('ass'):
         ffmpeg = get_ffmpeg_command(params, times, num, is_out=out_name)
 
@@ -1003,7 +1026,7 @@ if __name__ == '__main__':
       '-map :s? -c:s copy -map 0:t? %s & PID%02d=$!' % (concat_filename, out_name, len(times_list) + 1))
     
     bash_commands.append('wait $PID%02d' % (len(times_list) + 1))
-    bash_commands.extend(['rm %s & echo Deleted File: %s' % (x, x) for x in temp_filename])
+    bash_commands.extend(['rm %s & echo Deleted File: %s' % (x, x) for x in temp_filenames])
 
   bash_commands.append('rm %s' % (concat_filename)) if len(times_list) > 1 else None
   bash_commands.append('rm %s' % (bash_filename))
