@@ -381,7 +381,7 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
     PID = str()
   
   if times and not temp_name.endswith('ass'):
-    ffmpeg_command = '%s -i %s -vsync 1 -ss %s -to %s %s %s %s %s %s %s %s %s' % (ffmpeg_version, 
+    ffmpeg_command = '%s -i %s -vsync -1 -ss %s -to %s %s %s %s %s %s %s %s %s' % (ffmpeg_version, 
       params['source_file'], start_format, end_format, video_encoding, audio_encoding, 
       subtitle_transcoding, attachments, chapter_attachment, video_scaling, temp_name, threading)
   else:
@@ -924,7 +924,7 @@ if __name__ == '__main__':
 
     exit(0)
 
-  elif len(tracks['s']) > 1 and not params.get('track') and not params.get('sn'):
+  elif len(tracks['s']) > 0 and not params.get('track') and not params.get('sn'):
     for track_id in tracks['s']:
       python_command = 'python3 %s %s -track %d -nthread -x' % (__file__, params['in'],
         track_id)
