@@ -817,7 +817,13 @@ def handle_subtitle_trimming(params, subtitle_filename):
   shift = pysubs.misc.Time('00:00:00.000')
   for (index, times) in enumerate(subtitle_times):
     if index > 0:
-      shift += times[0] - subtitle_times[index - 1][1]
+      if index == len(subtitle_times) - 1:
+        time_per_frame = ('%.4f' % (1 / float(params['frame_rate'])))[:-1]
+        shift += times[0] - subtitle_times[index - 1][1] - pysubs.misc.Time(
+          '00:00:0' + time_per_frame)
+      else:
+        shift += times[0] - subtitle_times[index - 1][1]
+
       shifting_time = [-x for x in shift.to_times()]
 
     elif index == 0:
