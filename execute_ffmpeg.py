@@ -513,8 +513,29 @@ def get_names_and_order(times_list, params):
       order = times_list
 
   elif len(times_list) == 3 and (params['op'] and params['ed']):
-    names = ['Intro', 'Opening', 'Episode', 'Ending', 'Outro']
-    order = [times_list[0], params['op'], times_list[1], params['ed'], times_list[2]]
+    if fixed_names:
+      names = list(); order = list();
+      is_op = True
+
+      for index, times in enumerate(times_list):
+
+        if index == 0 and times[0] > 50:
+          names.append('Opening')
+          order.append(params['op'])
+          is_op = False
+
+        if index < len(times_list) - 1 and times_list[index + 1][0] - times[1] > 50:
+          names.append(fixed_names[index]); names.append('Opening' if is_op else 'Ending')
+          order.append(times_list[index]); order.append(params['op'] if is_op else params['ed'])
+          is_op = False
+
+        else:
+          names.append(fixed_names[index]);
+          order.append(times_list[index]);
+
+    else:
+      names = ['Intro', 'Opening', 'Episode', 'Ending', 'Outro']
+      order = [times_list[0], params['op'], times_list[1], params['ed'], times_list[2]]
 
   elif len(times_list) == 3 and (params['op'] and not params['ed']):
     if fixed_names and times_list[0][0] > 50:
@@ -540,6 +561,22 @@ def get_names_and_order(times_list, params):
       names = ['Intro', 'Episode', 'Outro']
       order = times_list
 
+  elif len(times_list) == 4 and (params['op'] and params['ed']):
+    if fixed_names:
+      names = list(); order = list();
+      is_op = True
+      
+      for index, times in enumerate(times_list):
+
+        if index < len(times_list) - 1 and times_list[index + 1][0] - times[1] > 50:
+          names.append(fixed_names[index]); names.append('Opening' if is_op else 'Ending')
+          order.append(times_list[index]); order.append(params['op'] if is_op else params['ed'])
+          is_op = False
+
+        else:
+          names.append(fixed_names[index]);
+          order.append(times_list[index]);
+
   elif len(times_list) == 4 and (params['op'] and not params['ed']):
     if fixed_names and times_list[0][0] > 50:
       names = ['Opening']; names.extend(fixed_names)
@@ -557,10 +594,44 @@ def get_names_and_order(times_list, params):
       names = fixed_names
       order = times_list
 
+  elif len(times_list) == 5 and (params['op'] and params['ed']):
+    if fixed_names:
+      names = list(); order = list();
+      is_op = True
+      
+      for index, times in enumerate(times_list):
+
+        if index < len(times_list) - 1 and times_list[index + 1][0] - times[1] > 50:
+          names.append(fixed_names[index]); names.append('Opening' if is_op else 'Ending')
+          order.append(times_list[index]); order.append(params['op'] if is_op else params['ed'])
+          is_op = False
+
+        else:
+          names.append(fixed_names[index]);
+          order.append(times_list[index]);
+
   elif len(times_list) == 5 and (params['op'] and not params['ed']):
     if fixed_names and times_list[1][0] - times_list[0][1] > 50:
       names = fixed_names[:1]; names.append('Opening'); names.extend(fixed_names[1:])
       order = times_list[:1]; order.append(params['op']); order.extend(times_list[1:])
+
+  elif len(times_list) == 5 and (not params['op'] and params['ed']):
+    names = list()
+    order = list()
+
+#    if fixed_names and times_list[4][0] - times_list[3][1] > 50:
+ #     names = fixed_name[:4]; names.append('Ending'); names.extend(fixed_names[4:])
+  #    order = times_list[:4]; order.append(params['ed']); order.extend(times_list[4:])
+
+    if fixed_names:
+      for index, times in enumerate(times_list):
+        if index < len(times_list) - 1 and times_list[index + 1][0] - times[1] > 50:
+          names.append(fixed_names[index]); names.append('Ending')
+          order.append(times_list[index]); order.append(params['ed'])
+
+        else:
+          names.append(fixed_names[index])
+          order.append(times_list[index])
 
   return names, order
 
