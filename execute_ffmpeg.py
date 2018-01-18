@@ -1002,13 +1002,13 @@ if __name__ == '__main__':
 
     exit(0)
 
-  elif len(tracks['s']) > 0 and not params.get('track') and not params.get('sn'):
+  elif len(tracks['s']) > 0 and params.get('track') is None and not params.get('sn'):
     for track_id in tracks['s']:
       python_command = 'python3 %s %s -track %d -nthread -x' % (__file__, params['in'],
         track_id)
       start_external_execution(python_command)
 
-  if params.get('track'):
+  if params.get('track') is not None:
     
     if params['track'] in tracks['v']:
       params['an'], params['sn'], params['tn'] = (True, True, True)
@@ -1020,14 +1020,14 @@ if __name__ == '__main__':
   if params['vn'] and params['sn'] and params['tn'] and not params['an']:
     audio_ext = 'aac' if params.get('aac') else 'opus'
 
-    if params.get('track'):
+    if params.get('track') is not None:
       out_name = '%s_Audio_%d.%s' % (params['in'][:-4], params['track'], audio_ext)
     else:
       out_name = '%s_Audio_%d.%s' % (params['in'][:-4], tracks['a'][0], audio_ext)
   
   elif params['vn'] and params['an'] and params['tn'] and not params['sn']:
     
-    if params.get('track'):
+    if params.get('track') is not None:
       out_name = '%s_Subtitle_final_%d.ass' % (params['in'][:-4], params['track'])
     else:
       out_name = '%s_Subtitle_final_%d.ass' % (params['in'][:-4], tracks['s'][0])
@@ -1068,10 +1068,10 @@ if __name__ == '__main__':
   else:
     for num, times in enumerate(times_list):
       
-      if params.get('track') and not out_name.endswith('ass'):
+      if params.get('track') is not None and not out_name.endswith('ass'):
         ffmpeg = get_ffmpeg_command(params, times, num, track_id=params['track'])
       
-      elif params.get('track') and out_name.endswith('ass'):
+      elif params.get('track') is not None and out_name.endswith('ass'):
         ffmpeg = get_ffmpeg_command(params, times, num, track_id=params['track'], is_out=out_name)
 
       elif out_name.endswith('ass'):
