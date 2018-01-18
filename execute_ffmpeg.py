@@ -1057,7 +1057,7 @@ if __name__ == '__main__':
   if (params['avs'] and not times_list) or not params['avs'] or len(times_list) == 1:
     times = times_list[0] if len(times_list) == 1 else list()
     
-    if params.get('track'):
+    if params.get('track') is not None:
       ffmpeg = get_ffmpeg_command(params, times, is_out=out_name, track_id=params['track'])
     
     else:
