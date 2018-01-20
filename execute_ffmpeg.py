@@ -589,6 +589,22 @@ def get_names_and_order(times_list, params):
       names = fixed_names[:2]; names.append('Opening'); names.extend(fixed_names[2:])
       order = times_list[:2]; order.append(params['op']); order.extend(times_list[2:])
 
+  elif len(times_list) == 4 and (not params['op'] and params['ed']):
+    if fixed_names:
+      names = list(); order = list();
+      is_op = True
+      
+      for index, times in enumerate(times_list):
+
+        if index < len(times_list) - 1 and times_list[index + 1][0] - times[1] > 50:
+          names.append(fixed_names[index]); names.append('Ending')
+          order.append(times_list[index]); order.append(params['ed'])
+          is_op = False
+
+        else:
+          names.append(fixed_names[index]);
+          order.append(times_list[index]);
+
   elif len(times_list) == 4 and (not params['op'] and not params['ed']):
     if fixed_names:
       names = fixed_names
@@ -704,8 +720,8 @@ def get_chapter_content(times_list, params):
       #   pass
       
       print(item)
-      offset = 1 if continuous else 0
-      # offset = 0
+      # offset = 1 if continuous else 0
+      offset = 0
 
       atom['start'] = str(timedelta(seconds=int(str(item[0]).split('.')[0]), 
         milliseconds=int(str(item[0]).split('.')[1].ljust(3, '0'))))
@@ -864,6 +880,9 @@ def process_encoding_settings(params):
 ##################################################################################################
 def handle_subtitle_trimming(params, subtitle_filename):
 
+  if not len(times_list) >= 1:
+    return;
+  
   print('#' * 50)
   print('Trimming [%s] using [%s]' % (subtitle_filename, params['in']))
 
