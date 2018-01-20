@@ -713,22 +713,27 @@ def get_chapter_content(times_list, params):
 
       try:
         if abs(order[num - 1][1] - item[0]) < 1:
+          continuity_offset = item[0] - order[num - 1][1]
           continuous = True
       except:
         pass
 
       print(item, end=' -> ')
-      if 'episode' in names[num].lower() and 'intro' not in names:
-        item = (float('%.3f' % (item[0] - item[0])), float('%.3f' % (item[1] - item[0])))
+      # if 'episode' in names[num].lower() and 'intro' not in names:
+      #   item = (float('%.3f' % (item[0] - item[0])), float('%.3f' % (item[1] - item[0])))
 
       if last_timestamp:
         diff = item[1] - item[0]
 
         if not continuous:
           calculated_start = last_timestamp + 1 / params['frame_rate']
+          calculated_end = calculated_start + diff
         else:
           calculated_start = last_timestamp
-        calculated_end = calculated_start + diff - (1 / params['frame_rate'])
+          # continuity_offset = item[0] - last_timestamp
+          calculated_end = calculated_start + diff + continuity_offset
+
+        # calculated_end = calculated_start + diff - (1 / params['frame_rate'])
 
         item = (float('%.3f' % (calculated_start)), float('%.3f' % (calculated_end)))
 
