@@ -426,10 +426,19 @@ def get_metadata(filename):
 
   result = subprocess.Popen(info_command, shell=True, stdout=subprocess.PIPE).stdout.read().decode('utf-8')
 
+  video_info_command = r'mediainfo --Inform="Video;%Duration/String3%"' 
+  video_info_command = '%s %s' % (video_info_command, filename)
+
+  video_result = subprocess.Popen(video_info_command, shell=True,
+    stdout=subprocess.PIPE).stdout.read().decode(
+    'utf-8').replace('\r', '').replace('\n', '')
+
   metadata = dict()
   metadata['duration'], suid = [x.replace('\r', '') for x in result.split('\n') if len(x) > 2]
   metadata['suid'] = "{0:X}".format(int(suid))
   metadata['name'] = filename
+
+  metadata['duration'] = video_result
   
   return metadata
 
@@ -635,9 +644,9 @@ def get_names_and_order(times_list, params):
     names = list()
     order = list()
 
-#    if fixed_names and times_list[4][0] - times_list[3][1] > 50:
- #     names = fixed_name[:4]; names.append('Ending'); names.extend(fixed_names[4:])
-  #    order = times_list[:4]; order.append(params['ed']); order.extend(times_list[4:])
+  # if fixed_names and times_list[4][0] - times_list[3][1] > 50:
+  #   names = fixed_name[:4]; names.append('Ending'); names.extend(fixed_names[4:])
+  #   order = times_list[:4]; order.append(params['ed']); order.extend(times_list[4:])
 
     if fixed_names:
       for index, times in enumerate(times_list):
@@ -648,6 +657,16 @@ def get_names_and_order(times_list, params):
         else:
           names.append(fixed_names[index])
           order.append(times_list[index])
+
+
+  elif len(times_list) == 5 and (not params['op'] and not params['ed']):
+    if fixed_names:
+      names = list(); order = list();
+      
+      for index, times in enumerate(times_list):
+        names.append(fixed_names[index]);
+        order.append(times_list[index]);
+
 
   return names, order
 
