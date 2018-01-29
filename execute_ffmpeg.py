@@ -381,11 +381,11 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
     PID = str()
   
   if times and not temp_name.endswith('ass'):
-    ffmpeg_command = '%s -i %s -vsync -1 -ss %s -to %s %s %s %s %s %s %s %s %s' % (ffmpeg_version, 
+    ffmpeg_command = '%s -i %s -vsync 0 -ss %s -to %s %s %s %s %s %s %s %s %s' % (ffmpeg_version, 
       params['source_file'], start_format, end_format, video_encoding, audio_encoding, 
       subtitle_transcoding, attachments, chapter_attachment, video_scaling, temp_name, threading)
   else:
-    ffmpeg_command = '%s -i %s %s %s %s %s %s %s %s %s' % (ffmpeg_version, params['source_file'], 
+    ffmpeg_command = '%s -i %s -vsync 0 %s %s %s %s %s %s %s %s' % (ffmpeg_version, params['source_file'], 
       video_encoding, audio_encoding, subtitle_transcoding, attachments, chapter_attachment, 
       video_scaling, temp_name, threading)
 
@@ -436,6 +436,7 @@ def get_metadata(filename):
   metadata = dict()
   metadata['duration'], suid = [x.replace('\r', '') for x in result.split('\n') if len(x) > 2]
   metadata['suid'] = "{0:X}".format(int(suid))
+  metadata['suid'] = '0%s' % (metadata['suid']) if len(metadata['suid']) < 32 else metadata['suid']
   metadata['name'] = filename
 
   metadata['duration'] = video_result
@@ -933,8 +934,8 @@ def handle_subtitle_trimming(params, subtitle_filename):
     if index > 0:
       if index == len(subtitle_times) - 1:
         time_per_frame = ('%.4f' % (1 / float(params['frame_rate'])))[:-1]
-        shift_offset = str(float(time_per_frame) * 1)
-        shift += times[0] - subtitle_times[index - 1][1] + pysubs.misc.Time(
+        shift_offset = str(float(time_per_frame) * 0)
+        shift += times[0] - subtitle_times[index - 1][1] - pysubs.misc.Time(
           '00:00:0' + shift_offset)
       else:
         shift += times[0] - subtitle_times[index - 1][1]
