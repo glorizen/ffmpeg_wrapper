@@ -711,6 +711,7 @@ def get_chapter_content(times_list, params):
 
     elif isinstance(item, (tuple, list)):
       continuous = False
+      item = tuple([float('%.03f' % (value)) for value in item])
 
       try:
         if abs(order[num - 1][1] - item[0]) < 1:
