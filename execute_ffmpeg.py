@@ -873,6 +873,28 @@ def handle_chapter_writing(params):
   print('\n'); exit(0)
 
 ##################################################################################################
+def handle_subtitle_extraction(params):
+
+  if params.get('sn'):
+    return
+
+  for track in params.get('all_tracks').get('s'):
+    output_name = params.get('in').split('.')[:-1]
+    output_name = '.'.join(output_name) + '_Subtitle_%d.ass' % (track)
+    output_name = os.path.join(params.get('input_dir'), output_name)
+
+    mkvextract_command = 'mkvextract tracks {source} {track_id}:{output}'.format(
+      source=os.path.join(params.get('orig_dir'), params.get('source_file')),
+      track_id=track, output=output_name
+    )
+
+    start_external_execution(mkvextract_command)
+    print('#' * 50 + '\n' + 'Subtitle file copied: %s' % (output_name))
+
+  if not params.get('subtrim'):
+    print('\n'); exit(0)
+
+##################################################################################################
 def process_encoding_settings(params):
 
   if not params.get('crf'):
@@ -1024,6 +1046,7 @@ if __name__ == '__main__':
 
   ssh = get_ssh_commands(params)
   handle_chapter_writing(params)
+  handle_subtitle_extraction(params)
 
   bash_commands = list() 
   wait_commands = list()
@@ -1047,11 +1070,15 @@ if __name__ == '__main__':
 
     exit(0)
 
-  elif len(tracks['s']) > 0 and params.get('track') is None and not params.get('sn'):
-    for track_id in tracks['s']:
-      python_command = 'python3 %s %s -track %d -nthread -x' % (__file__, params['in'],
-        track_id)
-      start_external_execution(python_command)
+  # elif len(tracks['s']) > 0 and params.get('track') is None and not params.get('sn'):
+  #   for track_id in tracks['s']:
+  #     python_command = 'python3 %s %s -track %d -nthread -x' % (__file__, params['in'],
+  #       track_id)
+  #     start_external_execution(python_command)
+
+  #   if not params.get('subtrim'):
+  #     exit(0);
+
 
   if params.get('track') is not None:
     
@@ -1059,8 +1086,8 @@ if __name__ == '__main__':
       params['an'], params['sn'], params['tn'] = (True, True, True)
     elif params['track'] in tracks['a']:
       params['vn'], params['sn'], params['tn'] = (True, True, True)
-    elif params['track'] in tracks['s']:
-      params['vn'], params['an'], params['tn'] = (True, True, True)
+    # elif params['track'] in tracks['s']:
+    #   params['vn'], params['an'], params['tn'] = (True, True, True)
 
   if params['vn'] and params['sn'] and params['tn'] and not params['an']:
     audio_ext = 'aac' if params.get('aac') else 'opus'
@@ -1070,12 +1097,12 @@ if __name__ == '__main__':
     else:
       out_name = '%s_Audio_%d.%s' % (params['in'][:-4], tracks['a'][0], audio_ext)
   
-  elif params['vn'] and params['an'] and params['tn'] and not params['sn']:
+  # elif params['vn'] and params['an'] and params['tn'] and not params['sn']:
     
-    if params.get('track') is not None:
-      out_name = '%s_Subtitle_final_%d.ass' % (params['in'][:-4], params['track'])
-    else:
-      out_name = '%s_Subtitle_final_%d.ass' % (params['in'][:-4], tracks['s'][0])
+  #   if params.get('track') is not None:
+  #     out_name = '%s_Subtitle_final_%d.ass' % (params['in'][:-4], params['track'])
+  #   else:
+  #     out_name = '%s_Subtitle_final_%d.ass' % (params['in'][:-4], tracks['s'][0])
   
   elif not params['vn'] and params['sn'] and params['an'] and params['tn']:
     out_name = '%s_Encoded.mkv' % (params['in'][:-4])
