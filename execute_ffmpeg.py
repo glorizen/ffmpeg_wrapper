@@ -817,7 +817,10 @@ def start_external_execution(external_command):
     except:
       pass
 
-  os.remove(temp_name)
+  try:
+    os.remove(temp_name)
+  except PermissionError:
+    pass
 
 ##################################################################################################
 def handle_execution(params, bash_filename):
@@ -880,7 +883,7 @@ def handle_subtitle_extraction(params):
 
   for track in params.get('all_tracks').get('s'):
     output_name = params.get('in').split('.')[:-1]
-    output_name = '.'.join(output_name) + '_Subtitle_%d.ass' % (track)
+    output_name = '.'.join(output_name) + '_Subtitle_final_%d.ass' % (track)
     output_name = os.path.join(params.get('input_dir'), output_name)
 
     mkvextract_command = 'mkvextract tracks {source} {track_id}:{output}'.format(
