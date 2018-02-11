@@ -82,7 +82,7 @@ def get_params():
     'while ignoring rest of the video.')
 
   parser.add_argument('-subtrim', action='store_true', help='this option will trim subtitles using pysubs.')
-
+  parser.add_argument('-fake', type=str, help='this option will add fake streams to detected source.')
   parser.add_argument('-track', type=int, help='this option will process given track id stream only ' \
     'while ignoring rest of the streams.')
 
@@ -257,6 +257,41 @@ def get_frame_rate(filename):
   else:
     return filtered['r_frame_rate']
   
+##################################################################################################
+def get_fake_tracks(params):
+
+  fake_streams = dict()
+  taken_ids = [stream_id for id_list in params.get('all_tracks').values()
+      for stream_id in id_list if isinstance(id_list, list) and len(id_list) >= 1]
+
+  if params.get('fake'):
+    tracks = params['fake'].split(',')
+
+    if not tracks:
+      return dict()
+
+    for track in tracks:
+      details = track.split(':')
+
+      if not details:
+        continue
+      
+      stream_type = details[0]
+
+      if len(details) > 1:
+        stream_id = int(details[1])
+      else:
+        available_id = [x for x in range(1, 20) if x not in taken_ids][0]
+        stream_id = available_id
+        taken_ids.append(available_id)
+
+      if fake_streams.get(stream_type):
+        fake_streams[stream_type].append(stream_id)
+      else:
+        fake_streams[stream_type] = [stream_id]
+
+  return fake_streams
+
 ##################################################################################################
 def get_ffprobe_metadata(filename):
   
@@ -1038,6 +1073,8 @@ if __name__ == '__main__':
   metadata = get_ffprobe_metadata(params['source_file'])
   tracks = metadata['tracks']
   params['all_tracks'] = metadata['tracks']
+
+  params['fake_tracks'] = get_fake_tracks(params)
   params['dim'] = metadata['dim']
   params['audio_channels'] = metadata['audio_channels']
   params['in'] = os.path.basename(params['in'])
@@ -1120,10 +1157,14 @@ if __name__ == '__main__':
     out_name = '"%s"' % (os.path.join(params['dest'], out_name))
 
   if params.get('subtrim'):
+    fake_subtitle_tracks = params['fake_tracks']['s'] if params.get('fake_tracks') \
+      and params['fake_tracks'].get('s') else list()
+
+    tracks['s'].extend(fake_subtitle_tracks)
     for track_id in tracks['s']:
       subtitle_filename = '%s_Subtitle_final_%d.ass' % (params['in'][:-4], track_id)
       handle_subtitle_trimming(params, subtitle_filename)
-    
+
     exit(0)
 
   bash_commands.append(ssh['login']) if ssh['login'] else str()
