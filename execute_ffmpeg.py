@@ -696,7 +696,8 @@ def get_names_and_order(times_list, params):
           order.append(times_list[index])
 
 
-  elif len(times_list) == 5 and (not params['op'] and not params['ed']):
+  elif len(times_list) == 5 or len(times_list) == 6 and \
+    (not params['op'] and not params['ed']):
     if fixed_names:
       names = list(); order = list();
       
@@ -941,7 +942,10 @@ def process_encoding_settings(params):
     if params.get('rs') and len(params['rs']) == 2:
       resulting_height = int(params['rs'][1])
     else:
-      resulting_height = params['dim'][1]
+      try:
+        resulting_height = params['dim'][1]
+      except:
+        resulting_height = 720
 
     if resulting_height > 900 and resulting_height <= 1100:
       crf = 23
