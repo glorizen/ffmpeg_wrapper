@@ -101,7 +101,7 @@ def get_params():
   parser.add_argument('-sn', action='store_true', help='this option will disable subtitle encoding.')
   parser.add_argument('-tn', action='store_true', help='this option will disable attachments.')
   parser.add_argument('-cc', action='store_true', help='this option will create chapter file from trims.')
-  parser.add_argument('-mx', type=str, help='this option muxes streams at the end by mkvmerge.')
+  parser.add_argument('-mx', action='store_true', help='this option muxes streams at the end by mkvmerge.')
   parser.add_argument('-hi', action='store_true', help='this option will use ffmpeg-hi that has non-free libs.')
   parser.add_argument('-map_ch', action='store_true', help='this option will attach default chapter file.')
 
@@ -461,12 +461,12 @@ def get_metadata(filename):
 
   result = subprocess.Popen(info_command, shell=True, stdout=subprocess.PIPE).stdout.read().decode('utf-8')
 
-  video_info_command = r'mediainfo --Inform="Video;%Duration/String3%"' 
+  video_info_command = r'mediainfo --Inform="Video;%Duration/String3%\n%Delay%"' 
   video_info_command = '%s %s' % (video_info_command, filename)
 
   video_result = subprocess.Popen(video_info_command, shell=True,
     stdout=subprocess.PIPE).stdout.read().decode(
-    'utf-8').replace('\r', '').replace('\n', '')
+    'utf-8').replace('\r', '').strip()
 
   metadata = dict()
   metadata['duration'], suid = [x.replace('\r', '') for x in result.split('\n') if len(x) > 2]
@@ -474,7 +474,8 @@ def get_metadata(filename):
   metadata['suid'] = '0%s' % (metadata['suid']) if len(metadata['suid']) < 32 else metadata['suid']
   metadata['name'] = filename
 
-  metadata['duration'] = video_result
+  metadata['duration'] = video_result.split('\n')[0]
+  metadata['delay'] = video_result.split('\n')[1]
   
   return metadata
 
@@ -1077,6 +1078,7 @@ if __name__ == '__main__':
   params['fake_tracks'] = get_fake_tracks(params)
   params['dim'] = metadata['dim']
   params['audio_channels'] = metadata['audio_channels']
+  params['orig_in'] = params['in']
   params['in'] = os.path.basename(params['in'])
 
   params = process_encoding_settings(params)
@@ -1201,25 +1203,39 @@ if __name__ == '__main__':
       
       elif not params.get('trim'):
         add_external_commands(ffmpeg)
-        
-        # if params['vn'] and params['an'] and not params['sn']:
-          # start = '%.3f' % (times[0]); end = '%.3f' % (times[1])
-          # start_format = str(timedelta(seconds=int(start.split('.')[0]), milliseconds=int(start.split('.')[1])))
-          # end_format = str(timedelta(seconds=int(end.split('.')[0]), milliseconds=int(end.split('.')[1])))
-          # dialogue_line = 'Dialogue: 0,{0:s},{0:s},Default,,0000,0000,0000,,'.format(end_format[:-3])
-          # time_append_command = 'echo "%s" >> %s' % (dialogue_line, ffmpeg['temp_name'])
-          # add_external_commands({'command': time_append_command}, 'b')
 
       if out_name.endswith('ass'):
         break
 
   bash_commands.extend(wait_commands)
 
+  if params.get('mx') and len(temp_filenames) > 1:
+    mmg_command = 'mkvmerge -o %s ' % (out_name)
+    for index, temp_filename in enumerate(temp_filenames):
+      temp_video_delay = get_metadata(temp_filename).get('delay')
+
+      if index > 0:
+        mmg_command += '--sync 0:%s + %s ' % (temp_video_delay, temp_filename)
+      else:
+        mmg_command += '%s ' % (temp_filename)
+
+    if params.get('prompt'):
+      print(mmg_command)
+    else:
+      start_external_execution(mmg_command)
+    exit(0)
+
   if params['avs'] and len(times_list) > 1 and not params['trim'] and not out_name.endswith('ass'):
-    bash_commands.append('ffmpeg -v fatal -f concat -i %s -map :v? -c:v copy -map :a? -c:a copy ' \
-      '-map :s? -c:s copy -map 0:t? %s & PID%02d=$!' % (concat_filename, out_name, len(times_list) + 1))
+
+    if not params.get('vn'):
+      bash_commands.append('%s %s %s -an -sn -tn -mx & PID00=$!' % (
+        sys.executable, os.path.realpath(__file__), params.get('orig_in')))
+      bash_commands.append('wait $PID00')
+
+    # bash_commands.append('ffmpeg -v fatal -f concat -i %s -map :v? -c:v copy -map :a? -c:a copy ' \
+    #   '-map :s? -c:s copy -map 0:t? %s & PID%02d=$!' % (concat_filename, out_name, len(times_list) + 1))
     
-    bash_commands.append('wait $PID%02d' % (len(times_list) + 1))
+    # bash_commands.append('wait $PID%02d' % (len(times_list) + 1))
     bash_commands.extend(['rm %s & echo Deleted File: %s' % (x, x) for x in temp_filenames])
 
   bash_commands.append('rm %s' % (concat_filename)) if len(times_list) > 1 else None
