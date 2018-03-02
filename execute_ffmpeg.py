@@ -1227,20 +1227,29 @@ if __name__ == '__main__':
       print(mmg_command)
     else:
       start_external_execution(mmg_command)
+
+      if os.path.isfile(out_name):
+        for filename in temp_filenames:
+          print('Deleting: %s' % (os.path.abspath(filename)))
+          os.remove(filename)
+
     exit(0)
 
   if params['avs'] and len(times_list) > 1 and not params['trim'] and not out_name.endswith('ass'):
 
-    if not params.get('vn'):
-      bash_commands.append('%s %s %s -an -sn -tn -mx & PID00=$!' % (
-        sys.executable, os.path.realpath(__file__), params.get('orig_in')))
-      bash_commands.append('wait $PID00')
+    # if not params.get('vn'):
+    #   bash_commands.append('%s %s %s -an -sn -tn -mx & PID00=$!' % (
+    #     sys.executable, os.path.realpath(__file__), params.get('orig_in')))
+    #   bash_commands.append('wait $PID00')
 
-    # bash_commands.append('ffmpeg -v fatal -f concat -i %s -map :v? -c:v copy -map :a? -c:a copy ' \
-    #   '-map :s? -c:s copy -map 0:t? %s & PID%02d=$!' % (concat_filename, out_name, len(times_list) + 1))
+    if params.get('vn'):
+      bash_commands.append('ffmpeg -v fatal -f concat -i %s -map :v? -c:v copy -map :a? -c:a copy ' \
+                           '-map :s? -c:s copy -map 0:t? %s & PID%02d=$!' % (concat_filename, out_name, len(times_list) + 1))
     
-    # bash_commands.append('wait $PID%02d' % (len(times_list) + 1))
-    bash_commands.extend(['rm %s & echo Deleted File: %s' % (x, x) for x in temp_filenames])
+      bash_commands.append('wait $PID%02d' % (len(times_list) + 1))
+    
+    if len(temp_filenames) > 1 and params.get('vn'):
+      bash_commands.extend(['rm %s & echo Deleted File: %s' % (x, x) for x in temp_filenames])
 
   bash_commands.append('rm %s' % (concat_filename)) if len(times_list) > 1 else None
   bash_commands.append('rm %s' % (bash_filename))
