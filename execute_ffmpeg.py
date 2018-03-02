@@ -741,57 +741,48 @@ def get_chapter_content(times_list, params):
 
     if isinstance(item, dict):
       atom['start'] = '%02d:%02d:%02d.%09d' % (0, 0, 0, 0)  
-      # atom['end'] = ':'.join(item['duration'].split(':')[:-1]) + ':' + 
-      #   str(float(item['duration'].split(':')[-1]) - 1.25)
       atom['end'] = item['duration']
       atom['suid'] = item['suid']
 
     elif isinstance(item, (tuple, list)):
-      continuous = False
       item = tuple([float('%.03f' % (value)) for value in item])
 
-      try:
-        if abs(order[num - 1][1] - item[0]) < 1:
-          continuity_offset = item[0] - order[num - 1][1]
+      if num > 0:
+        if isinstance(order[num - 1], dict) or \
+          abs(order[num - 1][1] - item[0]) > 1:
+          continuous = False
+        else:
           continuous = True
-      except:
-        pass
+          continuity_offset = item[0] - order[num - 1][1]
+      else:
+        continuous = True
+        continuity_offset = item[0] - order[num - 1][1]
 
       print(item, end=' -> ')
-      # if 'episode' in names[num].lower() and 'intro' not in names:
-      #   item = (float('%.3f' % (item[0] - item[0])), float('%.3f' % (item[1] - item[0])))
 
       if last_timestamp:
         diff = item[1] - item[0]
 
         if not continuous:
           calculated_start = last_timestamp + 1 / params['frame_rate']
-          calculated_end = calculated_start + diff
+          calculated_end = calculated_start + diff - (1 / params['frame_rate'])
         else:
           calculated_start = last_timestamp
-          # continuity_offset = item[0] - last_timestamp
           calculated_end = calculated_start + diff + continuity_offset
-
-        # calculated_end = calculated_start + diff - (1 / params['frame_rate'])
 
         item = (float('%.3f' % (calculated_start)), float('%.3f' % (calculated_end)))
 
-      # try:
-      #   if isinstance(order[num + 1], dict):
-      #     item = (item[0], float('%.3f' % (item[1] - (2 / params['frame_rate']))))
-      # except:
-      #   pass
-      
       print(item)
-      # offset = 1 if continuous else 0
-      offset = 0
-
       atom['start'] = str(timedelta(seconds=int(str(item[0]).split('.')[0]), 
         milliseconds=int(str(item[0]).split('.')[1].ljust(3, '0'))))
+
       atom['end'] = str(timedelta(seconds=int(str(item[1]).split('.')[0]), 
-        milliseconds=int(str(item[1]).split('.')[1].ljust(3, '0')) - offset))
+        milliseconds=int(str(item[1]).split('.')[1].ljust(3, '0'))))
       
-      last_timestamp = item[1]
+      if not continuous:
+        last_timestamp = item[1] + (1 / params['frame_rate'])
+      else:
+        last_timestamp = item[1]
 
     atom['ch-string'] = names[num]
     atoms.append(atom)
@@ -1244,7 +1235,8 @@ if __name__ == '__main__':
 
     if params.get('vn'):
       bash_commands.append('ffmpeg -v fatal -f concat -i %s -map :v? -c:v copy -map :a? -c:a copy ' \
-                           '-map :s? -c:s copy -map 0:t? %s & PID%02d=$!' % (concat_filename, out_name, len(times_list) + 1))
+                           '-map :s? -c:s copy -map 0:t? %s & PID%02d=$!' % (
+                            concat_filename, out_name, len(times_list) + 1))
     
       bash_commands.append('wait $PID%02d' % (len(times_list) + 1))
     
