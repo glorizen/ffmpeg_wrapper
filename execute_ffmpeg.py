@@ -495,6 +495,8 @@ def get_names_and_order(times_list, params):
 
   if len(times_list) == 1 and (params['op'] and params['ed']):
     names = ['Opening', 'Episode', 'Ending']
+    offset = times_list[0][0]
+    times_list[0] = (times_list[0][0] - offset, times_list[0][1] - offset)
     order = [params['op'], times_list[0], params['ed']]
     
   elif len(times_list) == 1 and (params['op'] and not params['ed']):
@@ -637,7 +639,7 @@ def get_names_and_order(times_list, params):
 
   elif len(times_list) == 4 and (not params['op'] and params['ed']):
     if fixed_names:
-      names = list(); order = list();
+      names = list(); order = list()
       is_op = True
       
       for index, times in enumerate(times_list):
@@ -648,8 +650,8 @@ def get_names_and_order(times_list, params):
           is_op = False
 
         else:
-          names.append(fixed_names[index]);
-          order.append(times_list[index]);
+          names.append(fixed_names[index])
+          order.append(times_list[index])
 
   elif len(times_list) == 4 and (not params['op'] and not params['ed']):
     if fixed_names:
@@ -658,7 +660,7 @@ def get_names_and_order(times_list, params):
 
   elif len(times_list) == 5 and (params['op'] and params['ed']):
     if fixed_names:
-      names = list(); order = list();
+      names = list(); order = list()
       is_op = True
       
       for index, times in enumerate(times_list):
@@ -669,8 +671,8 @@ def get_names_and_order(times_list, params):
           is_op = False
 
         else:
-          names.append(fixed_names[index]);
-          order.append(times_list[index]);
+          names.append(fixed_names[index])
+          order.append(times_list[index])
 
   elif len(times_list) == 5 and (params['op'] and not params['ed']):
     if fixed_names and times_list[1][0] - times_list[0][1] > 50:
@@ -699,11 +701,11 @@ def get_names_and_order(times_list, params):
   elif len(times_list) == 5 or len(times_list) == 6 and \
     (not params['op'] and not params['ed']):
     if fixed_names:
-      names = list(); order = list();
+      names = list(); order = list()
       
       for index, times in enumerate(times_list):
-        names.append(fixed_names[index]);
-        order.append(times_list[index]);
+        names.append(fixed_names[index])
+        order.append(times_list[index])
 
 
   return names, order
@@ -754,9 +756,6 @@ def get_chapter_content(times_list, params):
         else:
           continuous = True
           continuity_offset = item[0] - order[num - 1][1]
-      else:
-        continuous = True
-        continuity_offset = item[0] - order[num - 1][1]
 
       print(item, end=' -> ')
 
@@ -765,7 +764,7 @@ def get_chapter_content(times_list, params):
 
         if not continuous:
           calculated_start = last_timestamp + 1 / params['frame_rate']
-          calculated_end = calculated_start + diff - (1 / params['frame_rate'])
+          calculated_end = calculated_start + diff
         else:
           calculated_start = last_timestamp
           calculated_end = calculated_start + diff + continuity_offset
@@ -779,10 +778,7 @@ def get_chapter_content(times_list, params):
       atom['end'] = str(timedelta(seconds=int(str(item[1]).split('.')[0]), 
         milliseconds=int(str(item[1]).split('.')[1].ljust(3, '0'))))
       
-      if not continuous:
-        last_timestamp = item[1] + (1 / params['frame_rate'])
-      else:
-        last_timestamp = item[1]
+      last_timestamp = item[1]
 
     atom['ch-string'] = names[num]
     atoms.append(atom)
