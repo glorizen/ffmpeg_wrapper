@@ -6,6 +6,7 @@ import subprocess
 from datetime import timedelta
 
 import pysubs
+import chameleon
 from frame_rate import source_from_avscript
 
 CH_TEMPLATE_STRING = \
@@ -307,7 +308,16 @@ def get_ffprobe_metadata(filename):
     result = subprocess.Popen(probe_command, shell=True, stdout=subprocess.PIPE).stdout.read().decode('utf-8')
     tracks[stream_type] = [int(x.replace('\r', '').split('=')[1]) for x in result.split('\n') if x]
 
+  codecs = dict()
+  for stream_type in ['v', 'a', 's']:
+    probe_command = 'ffprobe -v fatal -of flat=s=_ -select_streams %s -show_entries ' \
+      'stream=codec_name %s' % (stream_type, os.path.basename(filename))
+    result = subprocess.Popen(probe_command, shell=True, stdout=subprocess.PIPE).stdout.read().decode('utf-8')
+    codecs[stream_type] = [x.replace('\r', '').split('=')[1].strip('"')
+      for x in result.split('\n') if x]
+
   metadata['tracks'] = tracks
+  metadata['codecs'] = codecs
 
   probe_command = 'ffprobe -v fatal -of flat=s=_ -select_streams v -show_entries ' \
     'stream=width,height %s' % (os.path.basename(filename))
@@ -373,10 +383,13 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
     else:
       if track_id != -1:
         channels = params['audio_channels'][params['all_tracks']['a'].index(track_id)]
-        audio_encoder = '-c:a libopus -b:a %d -vbr on -compression_level 10' % (
-          80000 * (channels / 2))
       else:
         channels = params['audio_channels'][-1]
+      
+      if channels > 2:
+        audio_encoder = '-c:a libopus -af aformat=channel_layouts="7.1|5.1|stereo" ' \
+          '-b:a %d -vbr on -compression_level 10' % (80000 * (channels / 2))
+      else:
         audio_encoder = '-c:a libopus -b:a %d -vbr on -compression_level 10' % (
           80000 * (channels / 2))
 
@@ -712,8 +725,6 @@ def get_names_and_order(times_list, params):
 
 ##################################################################################################
 def get_chapter_content(times_list, params):
-  
-  import chameleon
 
   edition = {
     'default': 1, 
@@ -906,8 +917,15 @@ def handle_subtitle_extraction(params):
     return
 
   for track in params.get('all_tracks').get('s'):
+    if params.get('track') is not None and params['track'] != track:
+      continue
+
+    index = params.get('all_tracks')['s'].index(track)
+    extension = 'srt' if 'subrip' in \
+      params['all_codecs']['s'][index] else 'ass'
+
     output_name = params.get('in').split('.')[:-1]
-    output_name = '.'.join(output_name) + '_Subtitle_final_%d.ass' % (track)
+    output_name = '.'.join(output_name) + '_Subtitle_final_%d.%s' % (track, extension)
     output_name = os.path.join(params.get('input_dir'), output_name)
 
     mkvextract_command = 'mkvextract tracks {source} {track_id}:{output}'.format(
@@ -959,7 +977,7 @@ def process_encoding_settings(params):
 def handle_subtitle_trimming(params, subtitle_filename):
 
   if not len(times_list) >= 1:
-    return;
+    return
   
   print('#' * 50)
   print('Trimming [%s] using [%s]' % (subtitle_filename, params['in']))
@@ -1065,6 +1083,7 @@ if __name__ == '__main__':
   metadata = get_ffprobe_metadata(params['source_file'])
   tracks = metadata['tracks']
   params['all_tracks'] = metadata['tracks']
+  params['all_codecs'] = metadata['codecs']
 
   params['fake_tracks'] = get_fake_tracks(params)
   params['dim'] = metadata['dim']
@@ -1155,7 +1174,15 @@ if __name__ == '__main__':
 
     tracks['s'].extend(fake_subtitle_tracks)
     for track_id in tracks['s']:
-      subtitle_filename = '%s_Subtitle_final_%d.ass' % (params['in'][:-4], track_id)
+      if params.get('track') is not None and params['track'] != track_id:
+        continue
+
+      index = tracks['s'].index(track_id)
+      extension = 'srt' if 'subrip' in \
+        params['all_codecs']['s'][index] else 'ass'
+
+      subtitle_filename = '%s_Subtitle_final_%d.%s' % (
+        params['in'][:-4], track_id, extension)
       handle_subtitle_trimming(params, subtitle_filename)
 
     exit(0)
