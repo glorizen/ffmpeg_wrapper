@@ -8,6 +8,9 @@ from datetime import timedelta
 import pysubs
 import chameleon
 from frame_rate import source_from_avscript
+from subedit import delay_subtitle
+from merger import attach_fonts
+
 
 CH_TEMPLATE_STRING = \
 '''<?xml version="1.0"?>
@@ -108,6 +111,9 @@ def get_params():
 
   parser.add_argument('-op', type=str, help='specify opening file for .mkv OC.')
   parser.add_argument('-ed', type=str, help='specify ending file for .mkv OC.')
+
+  parser.add_argument('-delay', type=int, help='this option will enable subtitle delay')
+  parser.add_argument('-attach', type=str, help='this option will attach fonts to input file.')
 
   params = parser.parse_args().__dict__
   params = process_params(params)
@@ -484,7 +490,10 @@ def get_metadata(filename):
   metadata = dict()
   metadata['duration'], suid = [x.replace('\r', '') for x in result.split('\n') if len(x) > 2]
   metadata['suid'] = "{0:X}".format(int(suid))
-  metadata['suid'] = '0%s' % (metadata['suid']) if len(metadata['suid']) < 32 else metadata['suid']
+
+  while len(metadata['suid']) < 32:
+    metadata['suid'] = '0%s' % (metadata['suid'])
+
   metadata['name'] = filename
 
   metadata['duration'] = video_result.split('\n')[0]
@@ -495,16 +504,11 @@ def get_metadata(filename):
 ##################################################################################################
 def get_names_and_order(times_list, params):
 
-  has_op = True; has_ed = True; fixed_names = list()
+  fixed_names = list()
 
   if params.get('avs_chapters'):
     fixed_names = params['avs_chapters']['names']
     times_list = params['avs_chapters']['times']
-
-    if 'opening' in [x.lower() for x in fixed_names]:
-      has_op = False
-    if 'ending' in [x.lower() for x in fixed_names]:
-      has_ed = False
 
   if len(times_list) == 1 and (params['op'] and params['ed']):
     names = ['Opening', 'Episode', 'Ending']
@@ -575,7 +579,7 @@ def get_names_and_order(times_list, params):
 
   elif len(times_list) == 3 and (params['op'] and params['ed']):
     if fixed_names:
-      names = list(); order = list();
+      names = list(); order = list()
       is_op = True
 
       for index, times in enumerate(times_list):
@@ -591,15 +595,19 @@ def get_names_and_order(times_list, params):
           is_op = False
 
         else:
-          names.append(fixed_names[index]);
-          order.append(times_list[index]);
+          names.append(fixed_names[index])
+          order.append(times_list[index])
 
     else:
       names = ['Intro', 'Opening', 'Episode', 'Ending', 'Outro']
       order = [times_list[0], params['op'], times_list[1], params['ed'], times_list[2]]
 
   elif len(times_list) == 3 and (params['op'] and not params['ed']):
+    
     if fixed_names and times_list[0][0] > 50:
+      offset = times_list[0][0]      
+      times_list = [(x[0] - offset, x[1] - offset) for x in times_list]
+
       names = ['Opening']; names.extend(fixed_names)
       order = [params['op']]; order.extend(times_list)
     else:
@@ -624,7 +632,7 @@ def get_names_and_order(times_list, params):
 
   elif len(times_list) == 4 and (params['op'] and params['ed']):
     if fixed_names:
-      names = list(); order = list();
+      names = list(); order = list()
       is_op = True
       
       for index, times in enumerate(times_list):
@@ -635,8 +643,8 @@ def get_names_and_order(times_list, params):
           is_op = False
 
         else:
-          names.append(fixed_names[index]);
-          order.append(times_list[index]);
+          names.append(fixed_names[index])
+          order.append(times_list[index])
 
   elif len(times_list) == 4 and (params['op'] and not params['ed']):
     if fixed_names and times_list[0][0] > 50:
@@ -913,7 +921,7 @@ def handle_chapter_writing(params):
 ##################################################################################################
 def handle_subtitle_extraction(params):
 
-  if params.get('sn'):
+  if params.get('sn') or params.get('track') not in params['all_tracks']['s']:
     return
 
   for track in params.get('all_tracks').get('s'):
@@ -1017,7 +1025,6 @@ def handle_subtitle_trimming(params, subtitle_filename):
       shift += subtitle_times[index][0] - pysubs.misc.Time('00:00:00.000')
       shifting_time = [-x for x in shift.to_times()]
 
-    line_prints = 0
     for line in subs:
       new_line = None
 
@@ -1054,6 +1061,15 @@ if __name__ == '__main__':
   
   params = get_params()
   times_list = list()
+
+  if params.get('delay'):
+    delay_subtitle(params['in'], params.get('delay'))
+    exit(0)
+  
+  if params.get('attach'):
+    command = attach_fonts(params['in'], params.get('attach'))
+    start_external_execution(command)
+    exit(0)
 
   if not params['in'].endswith('.avs'):
     params['avs'] = False
@@ -1131,7 +1147,6 @@ if __name__ == '__main__':
   #   if not params.get('subtrim'):
   #     exit(0);
 
-
   if params.get('track') is not None:
     
     if params['track'] in tracks['v']:
@@ -1178,8 +1193,14 @@ if __name__ == '__main__':
         continue
 
       index = tracks['s'].index(track_id)
-      extension = 'srt' if 'subrip' in \
-        params['all_codecs']['s'][index] else 'ass'
+      try:
+        extension = 'srt' if 'subrip' in \
+          params['all_codecs']['s'][index] else 'ass'
+      except IndexError:
+        if track_id in params['fake_tracks']['s']:
+          extension = 'ass'
+        else:
+          raise IndexError
 
       subtitle_filename = '%s_Subtitle_final_%d.%s' % (
         params['in'][:-4], track_id, extension)
@@ -1272,7 +1293,7 @@ if __name__ == '__main__':
 
   if params['mx']:
 
-    video_name = str(); audio_name = str(); sub_name = str();
+    video_name = str(); audio_name = str(); sub_name = str()
 
     if 'v' in params['mx']:
       video_string = '-i %s_Encoded.mkv' % (params['in'][:-4])
