@@ -582,11 +582,14 @@ def get_names_and_order(times_list, params):
       names = list(); order = list()
       is_op = True
 
-      for index, times in enumerate(times_list):
+      for index, times in enumerate(times_list.copy()):
 
         if index == 0 and times[0] > 50:
           names.append('Opening')
           order.append(params['op'])
+
+          offset = times_list[0][0]      
+          times_list = [(x[0] - offset, x[1] - offset) for x in times_list]
           is_op = False
 
         if index < len(times_list) - 1 and times_list[index + 1][0] - times[1] > 50:
