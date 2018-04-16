@@ -510,6 +510,31 @@ def get_names_and_order(times_list, params):
     fixed_names = params['avs_chapters']['names']
     times_list = params['avs_chapters']['times']
 
+  print('Original Timings:', times_list)
+  diff = 0
+  new_times_list = list()
+  for index, times in enumerate(times_list):
+    offset = '%.3f' % ((1 / params['frame_rate']) * index)
+    offset = float(offset)
+
+    if index == len(times_list) - 1:
+      offset = 0
+
+    new_times = (float('%.3f' % (times[0] - diff)),
+      float('%.3f' % (times[1] - offset)))
+
+    if index < len(times_list) - 1 and \
+        times_list[index + 1][0] - times_list[index][1] < 5:
+      diff = times[1] - new_times[1]
+    else:
+      diff = 0
+    
+    new_times_list.append(new_times)
+  
+  print('+Chapter Timings:', new_times_list)
+  print('#' * 50)
+
+  times_list = new_times_list
   if len(times_list) == 1 and (params['op'] and params['ed']):
     names = ['Opening', 'Episode', 'Ending']
     offset = times_list[0][0]
@@ -785,7 +810,11 @@ def get_chapter_content(times_list, params):
         diff = item[1] - item[0]
 
         if not continuous:
-          calculated_start = last_timestamp + 1 / params['frame_rate']
+          if num <= 2:
+            calculated_start = last_timestamp + 1 / params['frame_rate']
+          elif num > 2:
+            calculated_start = last_timestamp + 2 / params['frame_rate']
+
           calculated_end = calculated_start + diff
         else:
           calculated_start = last_timestamp
@@ -924,7 +953,8 @@ def handle_chapter_writing(params):
 ##################################################################################################
 def handle_subtitle_extraction(params):
 
-  if params.get('sn') or params.get('track') not in params['all_tracks']['s']:
+  if params.get('sn') or (params.get('track') is not None and
+      params.get('track') not in params['all_tracks']['s']):
     return
 
   for track in params.get('all_tracks').get('s'):
