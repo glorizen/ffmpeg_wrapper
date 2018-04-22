@@ -307,6 +307,97 @@ def get_ffprobe_metadata(filename):
   curr_dir = os.path.abspath(os.path.curdir)
   os.chdir(params['input_dir'])
 
+  if filename.endswith('.xml'):
+    media_json = dict()
+    xmlfile = open(filename, 'r')
+    xml_lines = xmlfile.readlines()
+    xmlfile.close()
+
+    options = [
+      {'name': 'video', 'token': 'v', 'status': False},
+      {'name': 'audio', 'token': 'a', 'status': False},
+      {'name': 'text', 'token': 's', 'status': False}
+    ]
+
+    for line in xml_lines:
+      line = line.strip().strip('\n')
+      if 'track type=' in line:
+      
+        for category in options:
+          if category['name'] in line.lower():
+            token = category['token']
+            category['status'] = True
+
+            if media_json.get(token):
+              media_json[token].append({})
+            else:
+              media_json[token] = list()
+              media_json[token].append({})
+
+        
+      if '/track' in line:
+        for category in options:
+          if category['status'] == True:
+            category['status'] = False
+        
+      if '</' not in line and '>' not in line:
+        continue
+      
+      try:
+        key = line.split('</')[1].strip('>')
+        value = line.split('</')[0].split('>')[1]
+      except:
+        key = str()
+        value = str()
+
+      if value:
+        try:
+          value = int(value)
+        except ValueError:
+          try:
+            value = float(value)
+          except ValueError:
+            pass
+
+      if key and value:
+        for category in options:
+          if category['status']:
+            token = category['token']
+            media_json[token][-1][key] = value
+
+    tracks = dict()
+    codecs = dict()
+    channels = list()
+    dimensions = list()
+
+    for category in media_json:
+      tracks[category] = list()
+      codecs[category] = list()
+
+      for item in media_json[category]:
+        if category == 'v':
+          dimensions.append(item.get('Width'))
+          dimensions.append(item.get('Height'))
+
+        for key, value in item.items():
+          if key == 'ID':
+            tracks[category].append(value - 1)
+          
+          if key == 'Format':
+            codecs[category].append(value.lower())
+          
+          if key == 'Channels':
+            channels.append(value)
+
+    metadata = {
+      'tracks': tracks,
+      'codecs': codecs,
+      'audio_channels': channels,
+      'dim': dimensions
+    }
+
+    return metadata
+
   tracks = dict()
   for stream_type in ['v', 'a', 's']:
     probe_command = 'ffprobe -v fatal -of flat=s=_ -select_streams %s -show_entries ' \
