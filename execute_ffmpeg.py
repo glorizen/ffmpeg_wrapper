@@ -525,13 +525,20 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
     threading = str()
     PID = str()
   
-  if times and not temp_name.endswith('ass'):
-    ffmpeg_command = '%s -i %s -vsync 0 -ss %s -to %s %s %s %s %s %s %s %s %s' % (ffmpeg_version, 
-      params['source_file'], start_format, end_format, video_encoding, audio_encoding, 
-      subtitle_transcoding, attachments, chapter_attachment, video_scaling, temp_name, threading)
+  if params['source_delay']:
+    negative_delay = -1 * float(int(params['source_delay']) / 1000)
   else:
-    ffmpeg_command = '%s -i %s -vsync 0 %s %s %s %s %s %s %s %s' % (ffmpeg_version, params['source_file'], 
-      video_encoding, audio_encoding, subtitle_transcoding, attachments, chapter_attachment, 
+    negative_delay = 0
+  
+  if times and not temp_name.endswith('ass'):
+    ffmpeg_command = '%s -itsoffset %.3f -i %s -vsync 0 -ss %s -to %s %s %s %s %s %s %s %s %s' % (
+      ffmpeg_version, negative_delay, params['source_file'], start_format,
+      end_format, video_encoding, audio_encoding, subtitle_transcoding,
+      attachments, chapter_attachment, video_scaling, temp_name, threading)
+  else:
+    ffmpeg_command = '%s -itsoffset %.3f -i %s -vsync 0 %s %s %s %s %s %s %s %s' % (
+      ffmpeg_version, negative_delay, params['source_file'], video_encoding,
+      audio_encoding, subtitle_transcoding, attachments, chapter_attachment, 
       video_scaling, temp_name, threading)
 
   return {
@@ -1199,6 +1206,8 @@ if __name__ == '__main__':
     params['avs'] = False
     print('Not an avscript. [Skipping custom commands processing from the given input]')
     params['source_file'] = params['in']
+    params['source_delay'] = 0
+
   else:
     params['avs'] = True
     commands = get_custom_commands(params['in'])
@@ -1219,12 +1228,14 @@ if __name__ == '__main__':
         params['frame_rate'] = get_frame_rate(params['source_file'])
 
     times_list = get_trim_times(params['in'], params['frame_rate'])
+    params['source_delay'] = get_metadata(params['source_file']).get('delay')
 
   metadata = get_ffprobe_metadata(params['source_file'])
   tracks = metadata['tracks']
   params['all_tracks'] = metadata['tracks']
   params['all_codecs'] = metadata['codecs']
 
+  
   params['fake_tracks'] = get_fake_tracks(params)
   params['dim'] = metadata['dim']
   params['audio_channels'] = metadata['audio_channels']
