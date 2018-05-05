@@ -1,7 +1,7 @@
 import os
 import pysubs
 
-def delay_subtitle(subtitle_filename, delay):
+def delay_subtitle(subtitle_filename, delay, overwrite=False):
 
   if not(os.path.isfile(subtitle_filename) and delay != 0):
     return
@@ -20,6 +20,11 @@ def delay_subtitle(subtitle_filename, delay):
     new_line.shift(ms=delay)
     new_subs.events.append(new_line)
 
-  filename, ext = os.path.splitext(subtitle_filename)
-  filename += '_edited'
-  new_subs.save(filename + ext)
+  if not overwrite:
+    filename, ext = os.path.splitext(subtitle_filename)
+    filename += '_edited'
+    new_subs.save(filename + ext)
+  
+  else:
+    new_subs.save(subtitle_filename)
+  

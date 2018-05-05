@@ -439,6 +439,21 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
     start_format = str(timedelta(seconds=int(start.split('.')[0]), milliseconds=int(start.split('.')[1])))
     end_format = str(timedelta(seconds=int(end.split('.')[0]), milliseconds=int(end.split('.')[1])))
 
+    # if params['source_delay']:
+    #   keyframe_delay = -1 * int(params['source_delay'])
+
+    #   seconds, millisecs = [int(x) for x in end.split('.')]
+    #   delayed_end = ((seconds * 1000) + millisecs) + keyframe_delay
+    #   delayed_end = '%.3f' % (delayed_end / 1000)
+
+    #   delayed_end_format = str(timedelta(seconds=int(delayed_end.split('.')[0]),
+    #                            milliseconds=int(delayed_end.split('.')[1])))
+      
+    #   keyframes = '-force_key_frames %s' % (delayed_end_format)
+
+    # else:
+    #   keyframes = '-force_key_frames %s' % (end_format)
+
   if params['vn'] and params['sn'] and params['tn'] and not params['an']:
     audio_ext = 'aac' if params.get('aac') else 'opus'
     temp_name = '%s_%02d.%s' % (params['in'][:-4], command_num + 1, audio_ext)
@@ -1035,7 +1050,24 @@ def handle_chapter_writing(params):
 
   params['op'] = get_metadata(params['op']) if params.get('op') else None
   params['ed'] = get_metadata(params['ed']) if params.get('ed') else None
-  
+
+  # if params['source_delay']:
+  #   chapter_delay = -1 * int(params['source_delay'])
+  #   new_times = list()
+  #   for part in times_list:
+  #     new_part = list()
+  #     for timestamp in part:
+  #       if timestamp > 0:
+  #         timestamp = '%.3f' % (timestamp)
+  #         seconds, millisecs = [int(x) for x in timestamp.split('.')]
+  #         timestamp = (seconds * 1000) + millisecs
+  #         timestamp += chapter_delay
+  #         timestamp = float('%.3f' % (timestamp / 1000))
+        
+  #       new_part.append(timestamp)
+  #     new_times.append(tuple(new_part))
+  # times_list = new_times
+
   params['chapter'] = {
     'content': get_chapter_content(times_list, params),
     'filename': '%s_chapter.xml' % (params['in'][:-4])
@@ -1067,13 +1099,17 @@ def handle_subtitle_extraction(params):
     output_name = '.'.join(output_name) + '_Subtitle_final_%d.%s' % (track, extension)
     output_name = os.path.join(params.get('input_dir'), output_name)
 
-    mkvextract_command = 'mkvextract tracks {source} {track_id}:{output}'.format(
+    mkvextract_command = 'mkvextract tracks "{source}" "{track_id}:{output}"'.format(
       source=os.path.join(params.get('orig_dir'), params.get('source_file')),
       track_id=track, output=output_name
     )
 
     start_external_execution(mkvextract_command)
     print('#' * 50 + '\n' + 'Subtitle file copied: %s' % (output_name))
+
+    if params['source_delay']:
+      sub_delay = -1 * int(params['source_delay'])
+      delay_subtitle(output_name, sub_delay, True)
 
   if not params.get('subtrim'):
     print('\n'); exit(0)
