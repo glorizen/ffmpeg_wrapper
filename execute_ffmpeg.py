@@ -624,14 +624,24 @@ def get_names_and_order(times_list, params):
     times_list = params['avs_chapters']['times']
 
   print('Original Timings:', times_list)
+  
   diff = 0
+  applied = 1
   new_times_list = list()
+
   for index, times in enumerate(times_list):
-    offset = '%.3f' % ((1 / params['frame_rate']) * index)
+    offset = '%.3f' % ((1 / params['frame_rate']) * applied)
     offset = float(offset)
 
     if index == len(times_list) - 1:
       offset = 0
+
+    if index < len(times_list) -1 and \
+      times_list[index + 1][0] - times_list[index][1] < 5: 
+      offset = 0
+
+    if offset > 0:
+      applied +=1
 
     new_times = (float('%.3f' % (times[0] - diff)),
       float('%.3f' % (times[1] - offset)))
@@ -820,13 +830,23 @@ def get_names_and_order(times_list, params):
       names = fixed_names
       order = times_list
 
-  elif len(times_list) == 5 and (params['op'] and params['ed']):
+  elif len(times_list) >= 5 and (params['op'] and params['ed']):
     if fixed_names:
       names = list(); order = list()
       is_op = True
-      
+
+      offset = 0
       for index, times in enumerate(times_list):
 
+        if index == 0 and times_list[index][0] > 50:
+          names.append('Opening')
+          order.append(params['op'])
+          offset = times_list[index][0]
+          is_op = False
+
+        if offset > 0:
+          times_list[index] = tuple([x - offset for x in times_list[index]])
+      
         if index < len(times_list) - 1 and times_list[index + 1][0] - times[1] > 50:
           names.append(fixed_names[index]); names.append('Opening' if is_op else 'Ending')
           order.append(times_list[index]); order.append(params['op'] if is_op else params['ed'])
