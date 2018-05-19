@@ -639,6 +639,9 @@ def get_names_and_order(times_list, params):
     if index < len(times_list) -1 and \
       times_list[index + 1][0] - times_list[index][1] < 5: 
       offset = 0
+    
+    if index == 0 and times_list[index][1] < 10 * 60:
+      offset = 0
 
     if offset > 0:
       applied +=1
