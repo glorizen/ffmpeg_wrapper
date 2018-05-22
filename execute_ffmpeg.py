@@ -9,7 +9,9 @@ import pysubs
 import chameleon
 from frame_rate import source_from_avscript
 from subedit import delay_subtitle
-from merger import attach_fonts
+from muxer import (
+  attach_fonts, merge_video,
+  mux_episode, ffmpeg_audio_mux)
 
 
 CH_TEMPLATE_STRING = \
@@ -1247,6 +1249,37 @@ def handle_subtitle_trimming(params, subtitle_filename):
   print('#' * 50)
 
 ##################################################################################################
+def handle_muxing(params, options):
+
+  temp_filenames = options.get('temp')
+  output_filename = options.get('output')
+
+  if params['an'] and params['sn'] and params['tn']:
+    # use mkvmerge to merge video parts.
+    if len(temp_filenames) > 1:
+      merge_video(params, options.get('temp'), options.get('output'))
+      exit(0)
+
+  elif params['an'] and not(params['vn'] or params['sn'] or
+    params['tn']):
+    # use mkvmerge to merge video, subs, attachments and chapters.
+    mux_episode(params)
+  
+  elif params['an'] and params['sn'] and not params['tn']:
+    # use mkvmerge to merge video, attachments and chapters.
+    mux_episode(params, audio=False, subs=False)
+  
+  elif params['an'] and params['tn'] and not params['sn']:
+    # use mkvmerge to merge video, subs and chapters.
+    mux_episode(params, audio=False, attachments=False)
+  
+  elif params['sn'] and params['tn'] and not params['an']:
+    # use mkvmerge to merge video and chapters.
+    # then use ffmpeg to merge audio with output of above mux.
+    muxed_filename = mux_episode(params, audio=False)
+    ffmpeg_audio_mux(params, muxed_filename)
+
+##################################################################################################
 if __name__ == '__main__':
   
   params = get_params()
@@ -1442,27 +1475,11 @@ if __name__ == '__main__':
 
   bash_commands.extend(wait_commands)
 
-  if params.get('mx') and len(temp_filenames) > 1:
-    mmg_command = 'mkvmerge -o %s ' % (out_name)
-    for index, temp_filename in enumerate(temp_filenames):
-      temp_video_delay = get_metadata(temp_filename).get('delay')
-
-      if index > 0:
-        mmg_command += '--sync 0:%s + %s ' % (temp_video_delay, temp_filename)
-      else:
-        mmg_command += '%s ' % (temp_filename)
-
-    if params.get('prompt'):
-      print(mmg_command)
-    else:
-      start_external_execution(mmg_command)
-
-      if os.path.isfile(out_name):
-        for filename in temp_filenames:
-          print('Deleting: %s' % (os.path.abspath(filename)))
-          os.remove(filename)
-
-    exit(0)
+  if params.get('mx'):
+    handle_muxing(params, {
+      'temp': temp_filenames,
+      'output': out_name
+    })
 
   if params['avs'] and len(times_list) > 1 and not params['trim'] and not out_name.endswith('ass'):
 
