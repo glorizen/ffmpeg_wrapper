@@ -1098,6 +1098,14 @@ def handle_muxing(params, options):
       subs=False, attachments=False)
     ffmpeg_audio_mux(params, output_filename)
     exit(0)
+
+  elif params['tn'] and not params['sn'] and not params['an']:
+    # use mkvmerge to merge video, subs and chapters.
+    # then use ffmpeg to merge audio with output of above mux.
+    output_filename = mux_episode(params, audio=False,
+      attachments=False)
+    ffmpeg_audio_mux(params, output_filename)
+    exit(0)
   
   else:
     output_filename = mux_episode(params, audio=False)

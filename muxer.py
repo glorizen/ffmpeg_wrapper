@@ -1,6 +1,10 @@
 import os
-from metadata import get_metadata
+from metadata import (
+  get_metadata, get_lang_and_title,
+  get_codec_name)
 from external import start_external_execution
+
+ATTACHMENT_SIZE_RANGE = 15
 
 def get_font_details(font_file):
 
@@ -68,7 +72,6 @@ def attach_fonts(target_file, attach_path):
   
   return mmg_command
 
-
 def merge_video(params, temp_filenames, output_filename):
   mmg_command = 'mkvmerge -o %s ' % (output_filename)
   for index, temp_filename in enumerate(temp_filenames):
@@ -120,10 +123,20 @@ def get_sub_files(params):
 def mux_episode(params, audio=False, subs=True, attachments=True):
 
   basename = os.path.splitext(params['in'])[0]
-  video_file = '%s_Encoded.mkv' % (basename)  
-  audio_files = get_audio_files(params)
-  sub_files = get_sub_files(params)
+  video_file = '%s_Encoded.mkv' % (basename)
+
+  if not os.path.isfile(video_file):
+    print('Encoded video file does not exist: %s' % (video_file))
+    exit(0)
   
+  expected_size = os.path.getsize(video_file)
+
+  sub_files = get_sub_files(params)
+  video_codec = get_codec_name(params, video_file)
+  video_codec = video_codec.upper()
+  video_codec = video_codec.replace('H264', 'H.264')
+
+  get_lang_and_title(params, params['source_file'])
 
   oc = False
   if params.get('cuts'):
@@ -146,11 +159,38 @@ def mux_episode(params, audio=False, subs=True, attachments=True):
 
   if subs:
     subtitle_command = list()
-    for filename in sub_files:
+    is_default = True
+    has_defaulted = False
+    for sub_number, filename in enumerate(sub_files):
+
+      if not os.path.isfile(filename):
+        continue
+
+      try:
+        sub_lang = params['languages']['s'][sub_number]
+      except:
+        sub_lang = 'eng'
+
+      try:
+        sub_name = params['titles']['s'][sub_number]
+      except:
+        sub_name = 'Styled Subtitle (.ass)'
+      
+      if not has_defaulted and sub_lang in ['eng', 'enm']:
+        is_default = True
+        has_defaulted = True
+      else:
+        is_default = False
+
       subtitle_command.append(
-        "--sub-charset 0:UTF-8 --default-track 0:yes " \
-        "--language 0:eng --track-name '0:Styled Subtitle (.ass)' " \
-        "'(' '%s' ')'" % (filename))
+        "--sub-charset 0:UTF-8 --default-track 0:{is_default} " \
+        "--language 0:{subtitle_language} --track-name '0:{subtitle_name}' " \
+        "'(' '{filename}' ')'".format(
+          is_default='yes' if is_default else 'no',
+          subtitle_language=sub_lang, subtitle_name=sub_name,
+          filename=filename))
+      
+      expected_size += os.path.getsize(filename)
 
     subtitle_command = ' '.join([x for x in subtitle_command])
   else:
@@ -159,6 +199,8 @@ def mux_episode(params, audio=False, subs=True, attachments=True):
   if oc and chapter_file:
     chapter_command = "--chapter-language eng --chapter-charset UTF-8 " \
       "--chapters '%s'" % (chapter_file)
+
+    expected_size += os.path.getsize(chapter_file)
   else:
     chapter_command = '\b'
 
@@ -167,41 +209,108 @@ def mux_episode(params, audio=False, subs=True, attachments=True):
   else:
     source_command = '-A -D -S %s' % (params['source_file'])
   
+  min_size = expected_size - (1024 * 1024 * 0.25)
+  max_size = expected_size + (1024 * 1024 * ATTACHMENT_SIZE_RANGE)
+
   if not attachments:
     source_command = source_command.replace('-S', '-S -M')
+    min_size -= 1024 * 1024 * ATTACHMENT_SIZE_RANGE
+    min_size = 0 if min_size < 0 else min_size
 
   output_file = '%s_Output.mkv' % (basename)
   command = "mkvmerge --output '{output}' " \
-    "--language 0:jpn --track-name '0:Hi10 Encode' " \
+    "--language 0:jpn --track-name '0:{video_name}' " \
     "--default-track 0:yes '(' '{encoded_video}' ')' " \
     "{subtitle_command} {chapter_command} " \
     "{source_command}".format(
       output=output_file,
+      video_name='Hi10 Encode (%s)' % (video_codec),
       encoded_video=video_file,
       subtitle_command=subtitle_command,
       chapter_command=chapter_command,
       source_command=source_command
     )
   
-  print(command)
-  return output_file
+  start_external_execution(command)
 
+  if os.path.isfile(output_file):
+    real_size = os.path.getsize(output_file)
+
+    print('min: %.2f MB' % (min_size / 1024 / 1024))
+    print('max: %.2f MB' % (max_size / 1024 / 1024))
+    print('real: %.2f MB' % (real_size / 1024 / 1024))
+    input('haro')
+
+    if min_size < real_size < max_size:
+      pass
+    else:
+      print('Output filesize from mkvmerge is not within expectations.\n' \
+        'Expectations: [%.2f MB - %.2f MB]\n' \
+        '%s: (%.2f MB)\n' % (min_size / 1024 / 1024,
+          max_size / 1024 / 1024, output_file,
+          real_size / 1024 / 1024))
+      exit(0)
+  else:
+    print('Expected output file from mkvmerge does not ' \
+      'exist: %s\n' % (output_file))
+    exit(0)
+
+  return output_file
 
 def ffmpeg_audio_mux(params, mux_to_filename):
 
+  expected_size = os.path.getsize(mux_to_filename)
   audio_files = get_audio_files(params)
   
   audio_input = list()
   audio_mapping = list()
+  is_default = True
+  has_defaulted = False
   for index, filename in enumerate(audio_files):
+
+    if not os.path.isfile(filename):
+      continue
+
+    try:
+      audio_channels = params['audio_channels'][index]
+      audio_channels = '(%d channeled)' % (audio_channels)
+    except:
+      audio_channels = '\b'
+
+    if filename.endswith(('.opus', '.ogg')):
+      audio_name = 'OPUS Audio'
+    elif filename.endswith('.eac3'):
+      audio_name = 'EAC3 Audio'
+    elif filename.endswith('.aac'):
+      audio_name = 'AAC Audio'
+    elif filename.endswith('.flac'):
+      audio_name = 'FLAC Audio'
+    
+    audio_name = '%s %s' % (audio_name, audio_channels)
+    
+    try:
+      audio_lang = params['languages']['a'][index]
+    except:
+      audio_lang = 'jpn'
+    
+    if not has_defaulted and audio_lang in ['jpn', 'ja']:
+      is_default = True
+      has_defaulted = True
+    else:
+      is_default = False
+
     a_input = '-i %s' % (filename) 
     a_map = '-map {map_index}:a? -c:a copy ' \
-      '-metadata:s:a:{ainput_index} language=jpn ' \
-      '-metadata:s:a:{ainput_index} title="My Audio Title"'.format(
-        map_index=index + 1, ainput_index=index)
+      '-metadata:s:a:{ainput_index} language={audio_lang} ' \
+      '-metadata:s:a:{ainput_index} title="{audio_name}" ' \
+      '-disposition:a:{ainput_index} {is_default}'.format(
+        map_index=index + 1, ainput_index=index,
+        audio_lang=audio_lang, audio_name=audio_name,
+        is_default='default' if is_default else 'none')
 
     audio_mapping.append(a_map)
     audio_input.append(a_input)
+    expected_size += os.path.getsize(filename)
   
   audio_input = ' '.join([x for x in audio_input])
   audio_mapping = ' '.join([x for x in audio_mapping])
@@ -209,11 +318,48 @@ def ffmpeg_audio_mux(params, mux_to_filename):
   output_file, ext = os.path.splitext(mux_to_filename)
   output_file = output_file + '_ffmux' + ext
 
+  if not audio_input:
+    print('No audio input was used. Exiting ffmpeg muxing module.')
+    return
+
   command = 'ffmpeg -i {video_file} {audio_input} -map 0:v? -c:v copy ' \
-    '-map 0:s? -c:s copy -map 0:t? {audio_mapping} {output}'.format(
+    '{audio_mapping} -map 0:s? -c:s copy -map 0:t? {output}'.format(
       video_file=mux_to_filename, audio_input=audio_input,
       audio_mapping=audio_mapping, output=output_file
     )
   
-  print(command)
-  return output_file
+  start_external_execution(command)
+
+  real_size = os.path.getsize(output_file)
+  min_size = expected_size - (1024 * 1024 * 0.25)
+  max_size = expected_size + (1024 * 1024 * 1)
+
+  if os.path.isfile(output_file):
+    if  min_size < real_size < max_size:
+
+      print('Removing file: %s (%.2f MB)' % (
+        mux_to_filename,
+        os.path.getsize(mux_to_filename) / 1024 / 1024))
+      
+      os.remove(mux_to_filename)
+      
+      print('Renaming: [%s] -> [%s]' % (output_file, mux_to_filename))
+      print('Final Output: %s (%.2f MB)\n' % (mux_to_filename,
+        real_size / 1024 / 1024))
+      os.rename(output_file, mux_to_filename)
+    else:
+      print('Output filesize from ffmpeg is not within ' \
+        'expectations.\nExpected Range: [%.2f MB - %.2f MB]\n' \
+        '%s: (%.2f MB)\n' % (
+          min_size / 1024 / 1024, max_size / 1024 / 1024,
+          output_file, real_size / 1024 / 1024))
+      exit(0)
+  else:
+    print('Expected output file from ffmpeg does not ' \
+      'exist: %s' % (output_file))
+    exit(0)
+
+  return {
+    'output': output_file,
+    'size': expected_size
+  }

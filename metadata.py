@@ -132,6 +132,57 @@ def get_ffprobe_metadata(params, filename):
   os.chdir(curr_dir)
   return metadata
 
+def get_codec_name(params, filename):
+
+  if not os.path.isfile(filename):
+    print('File does not exist: %s' % (filename))
+    return None
+  
+  for stream_type in ['v']:
+
+    probe_command = 'ffprobe -v fatal -of flat=s=_ -select_streams %s ' \
+      '-show_entries stream=codec_name %s' % (
+        stream_type, os.path.basename(filename))
+
+    result = subprocess.Popen(probe_command, shell=True,
+      stdout=subprocess.PIPE).stdout.read().decode('utf-8')
+    result = [x.replace('\r', str()) for x in result.split('\n') if x]
+
+    for item in result:
+      if 'codec_name=' in item:
+        codec_name = item.split('codec_name=')[1].strip() \
+          .replace('"', str())
+        return codec_name
+
+def get_lang_and_title(params, filename):
+
+  if not os.path.isfile(filename):
+    print('File does not exist: %s' % (filename))
+    return None
+  
+  params['languages'] = dict()
+  params['titles'] = dict()
+  for stream_type in ['v', 'a', 's']:
+    params['languages'][stream_type] = list()
+    params['titles'][stream_type] = list()
+
+    probe_command = 'ffprobe -v fatal -of flat=s=_ -select_streams %s -show_entries ' \
+      'stream_tags=title -show_entries stream_tags=language %s' % (
+        stream_type, os.path.basename(filename))
+
+    result = subprocess.Popen(probe_command, shell=True,
+      stdout=subprocess.PIPE).stdout.read().decode('utf-8')
+    result = [x.replace('\r', str()) for x in result.split('\n') if x]
+
+    for item in result:
+      if 'title=' in item:
+        title = item.split('title=')[1].strip().replace('"', str())
+        params['titles'][stream_type].append(title)
+      
+      if 'language=' in item:
+        lang = item.split('language=')[1].strip().replace('"', str())
+        params['languages'][stream_type].append(lang)
+
 def get_metadata(params, filename):
 
   if not os.path.isfile(filename):
