@@ -220,21 +220,10 @@ def mux_episode(params, audio=False, subs=True, attachments=True):
     video_duration = get_duration(video_file)
     source_duration = get_duration(params['source_file'])
     
-    if video_duration > source_duration * 0.90:
+    if video_duration > source_duration * 0.90 and not params['cn']:
       source_command = '-A -D -S %s' % (params['source_file'])
     else:
       source_command = '-A -D -S --no-chapters %s' % (params['source_file'])
-
-  # if oc:
-  #   source_command = '-A -D -S --no-chapters %s' % (params['source_file'])
-  # else:
-  #   video_duration = get_duration(video_file)
-  #   source_duration = get_duration(params['source_file'])
-    
-  #   if video_duration > source_duration * 0.90:
-  #     source_command = '-A -D -S %s' % (params['source_file'])
-  #   else:
-  #     source_command = '-A -D -S --no-chapters %s' % (params['source_file'])
 
   min_size = expected_size - (1024 * 1024 * 0.25)
   max_size = expected_size + (1024 * 1024 * ATTACHMENT_SIZE_RANGE)

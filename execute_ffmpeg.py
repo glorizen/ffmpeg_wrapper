@@ -88,6 +88,7 @@ def get_params():
   parser.add_argument('-an', action='store_true', help='this option will disable audio encoding.')
   parser.add_argument('-sn', action='store_true', help='this option will disable subtitle encoding.')
   parser.add_argument('-tn', action='store_true', help='this option will disable attachments.')
+  parser.add_argument('-cn', action='store_true', help='this option will disable chapters muxing from source.')
   parser.add_argument('-cc', action='store_true', help='this option will create chapter file from trims.')
   parser.add_argument('-mx', action='store_true', help='this option muxes streams at the end by mkvmerge.')
   parser.add_argument('-hi', action='store_true', help='this option will use ffmpeg-hi that has non-free libs.')
