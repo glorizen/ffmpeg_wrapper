@@ -2,10 +2,9 @@ import os
 import argparse
 import subprocess
 
-#################################################################################
-class UndefinedVariableError(Exception):
-  pass
+from avs import source_from_avscript
 
+#################################################################################
 class MediaInfoError(Exception):
   pass
 
@@ -20,62 +19,6 @@ def get_params():
   params = parser.parse_args().__dict__
 
   return params
-
-#################################################################################
-def source_from_avscript(filename):
-
-  # raise exception if avscript file doesn't exist.
-  if not os.path.isfile(filename):
-    raise FileNotFoundError('File does not exist: %s' % (os.path.abspath(filename)))
-
-  # get all lines from avscript. strip new lines and carriage returns.
-  lines = [x.strip('\r').strip('\n').lower() for x in open(filename, 'r').readlines()]
-  defined = dict()
-
-  # iterate through each fetched line (enumerate to track line num being read)
-  for line_no, line in enumerate(lines):
-    
-    # split line on '=' basis and if splitted items are 2, it means, most likely, that 
-    # a variable was defined in that line. put that variable and its value in a dict.
-    tokens = [temp.strip(' ') for temp in line.split('=')]
-    if len(tokens) == 2:
-      defined[tokens[0]] = tokens[1]
-
-    # if a line contains video decoder (FFVideoSource, DirectShowSource etc.) then proceed.
-    # ignore line having 'ffaudio' because it will probably have same source as video.
-    # proceed with video decoder line and get the part inside FFVideoSource(==>something + ".mkv"<==)
-    if 'source(' in line and 'ffaudio' not in line:
-      avs_input = line.split('source(')[1].split(',')[0].strip(')')
-      
-      # if a variable is used, then try to guess if extension was included or not.
-      # + sign and " shows that an extension was added like: source + ".mp4"
-      #   read the part before +
-      # otherwise, assume variable was used without extension (variable had extension in itself)
-      if '+' in avs_input and '"' in avs_input and not avs_input.startswith('"'):
-        varname = avs_input.split('+')[0].strip(' ')
-      else:
-        varname = avs_input
-      
-      # if variable used was defined previously in avscript, then
-      #   use the value of variable and remove " from the value. (value is most likely source filename)
-      if varname in defined:
-        source_filename = defined[varname].replace('"', '')
-      # if variable started / ended with ", it is not a variable. 
-      # But probably source file in string form. hence, remove " from string to get source filename.
-      elif varname.startswith('"') and varname.endswith('"'):
-        source_filename = varname.lstrip('"').rstrip('"')
-      # otherwise, unknown variable is used in video decoder parameter.
-      else:
-        raise UndefinedVariable('Undefined variable: "%s"\n  File "%s", line %d, in text\n  %s' \
-          '' % (varname, filename, line_no, line))
-
-      # if the value (OF VARIABLE) used in video decoder parameter doesn't have its extension,
-      # then it's included in source + ".mkv" format. read the part after + in the targeted line.
-      if not source_filename.endswith(('.mkv', '.mp4', '.ts')):
-        extension = avs_input.split('+')[1].replace('"', '').strip(' ')
-        source_filename += extension
-
-  return source_filename
 
 #################################################################################
 def get_frame_rate(filename):

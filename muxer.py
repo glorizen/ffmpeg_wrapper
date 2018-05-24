@@ -236,11 +236,6 @@ def mux_episode(params, audio=False, subs=True, attachments=True):
   if os.path.isfile(output_file):
     real_size = os.path.getsize(output_file)
 
-    print('min: %.2f MB' % (min_size / 1024 / 1024))
-    print('max: %.2f MB' % (max_size / 1024 / 1024))
-    print('real: %.2f MB' % (real_size / 1024 / 1024))
-    input('haro')
-
     if min_size < real_size < max_size:
       pass
     else:

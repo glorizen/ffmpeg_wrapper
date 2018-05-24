@@ -187,7 +187,7 @@ def get_metadata(params, filename):
 
   if not os.path.isfile(filename):
     print('File does not exist: %s' % (filename))
-    return None
+    exit(0)
 
   info_command = r'mediainfo --Inform="General;%Duration/String3%\n%UniqueID%"' 
   info_command = '%s %s' % (info_command, filename)
