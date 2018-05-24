@@ -6,6 +6,9 @@ import subprocess
 ##################################################################################################
 def start_external_execution(external_command):
 
+  while '  ' in external_command:
+    external_command = external_command.replace('  ', ' ')
+
   temp_name = 'temp_%s' % (str(time.time()).replace('.', ''))
 
   with open(temp_name, 'w') as f:

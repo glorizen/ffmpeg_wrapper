@@ -132,6 +132,21 @@ def get_ffprobe_metadata(params, filename):
   os.chdir(curr_dir)
   return metadata
 
+def get_duration(filename):
+  
+  if not os.path.isfile(filename):
+    print('File does not exist: %s' % (filename))
+    return None
+  
+  info_command = r'mediainfo --Inform="Video;%Duration%"' 
+  info_command = '%s %s' % (info_command, filename)
+
+  result = subprocess.Popen(info_command, shell=True,
+    stdout=subprocess.PIPE).stdout.read() \
+    .decode('utf-8')
+  
+  return int(result.split('.')[0])
+
 def get_codec_name(params, filename):
 
   if not os.path.isfile(filename):

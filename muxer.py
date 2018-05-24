@@ -1,8 +1,10 @@
 import os
+from avs import parse_avs_chapters
+from external import start_external_execution
+
 from metadata import (
   get_metadata, get_lang_and_title,
-  get_codec_name)
-from external import start_external_execution
+  get_codec_name, get_duration)
 
 ATTACHMENT_SIZE_RANGE = 15
 
@@ -139,6 +141,7 @@ def mux_episode(params, audio=False, subs=True, attachments=True):
   get_lang_and_title(params, params['source_file'])
 
   oc = False
+  chapter_file = None
   if params.get('cuts'):
     timestamps = params['cuts']['original']['timestamps']
 
@@ -156,6 +159,16 @@ def mux_episode(params, audio=False, subs=True, attachments=True):
       print('Looks like muxing needs an external chapter file: %s' % (
         chapter_file))
       exit(0)
+
+  elif params['in'].endswith('.avs'):
+    avs_chapters = parse_avs_chapters(params['in'])
+    if avs_chapters:
+      chapter_file = '%s_chapter.xml' % (basename)
+      if not os.path.isfile(chapter_file):
+        print('Avscript contains chapter string but ' \
+          'no chapter file was found: %s' % (
+            chapter_file))
+        exit(0)
 
   if subs:
     subtitle_command = list()
@@ -194,21 +207,35 @@ def mux_episode(params, audio=False, subs=True, attachments=True):
 
     subtitle_command = ' '.join([x for x in subtitle_command])
   else:
-    subtitle_command = '\b'
+    subtitle_command = str()
 
-  if oc and chapter_file:
+  if chapter_file:
     chapter_command = "--chapter-language eng --chapter-charset UTF-8 " \
       "--chapters '%s'" % (chapter_file)
 
+    source_command = '-A -D -S --no-chapters %s' % (params['source_file'])
     expected_size += os.path.getsize(chapter_file)
   else:
-    chapter_command = '\b'
+    chapter_command = str()
+    video_duration = get_duration(video_file)
+    source_duration = get_duration(params['source_file'])
+    
+    if video_duration > source_duration * 0.90:
+      source_command = '-A -D -S %s' % (params['source_file'])
+    else:
+      source_command = '-A -D -S --no-chapters %s' % (params['source_file'])
 
-  if oc:
-    source_command = '-A -D -S --no-chapters %s' % (params['source_file'])
-  else:
-    source_command = '-A -D -S %s' % (params['source_file'])
-  
+  # if oc:
+  #   source_command = '-A -D -S --no-chapters %s' % (params['source_file'])
+  # else:
+  #   video_duration = get_duration(video_file)
+  #   source_duration = get_duration(params['source_file'])
+    
+  #   if video_duration > source_duration * 0.90:
+  #     source_command = '-A -D -S %s' % (params['source_file'])
+  #   else:
+  #     source_command = '-A -D -S --no-chapters %s' % (params['source_file'])
+
   min_size = expected_size - (1024 * 1024 * 0.25)
   max_size = expected_size + (1024 * 1024 * ATTACHMENT_SIZE_RANGE)
 
@@ -270,7 +297,7 @@ def ffmpeg_audio_mux(params, mux_to_filename):
       audio_channels = params['audio_channels'][index]
       audio_channels = '(%d channeled)' % (audio_channels)
     except:
-      audio_channels = '\b'
+      audio_channels = str()
 
     if filename.endswith(('.opus', '.ogg')):
       audio_name = 'OPUS Audio'

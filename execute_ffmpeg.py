@@ -108,16 +108,18 @@ def get_params():
 def get_source(input_file):
 
   basename = os.path.basename(input_file)
-  input_source = [x for x in os.listdir(params['input_dir']) 
-    if basename[:-4] == x[:-4] and x.endswith(('.mkv', '.mp4', '.avi', '.ts'))]
-
-  input_source = ''.join(input_source) if len(input_source) == 1 else \
-    ''.join([x for x in input_source if x.endswith('.mkv')])
+  input_source = source_from_avscript(input_file)
 
   if not input_source:
-    input_source = source_from_avscript(input_file)
+    input_source = [x for x in os.listdir(params['input_dir']) 
+      if basename[:-4] == x[:-4] and x.endswith(('.mkv', '.mp4', '.avi', '.ts'))]
+
+    input_source = ''.join(input_source) if len(input_source) == 1 else \
+      ''.join([x for x in input_source if x.endswith('.mkv')])
+
     if not input_source:
-      raise FileNotFoundError('Could not detect input source from avscript file: %s' % input_file)
+      raise FileNotFoundError('Could not detect input source from ' \
+        'either filedisk or avscript file: %s' % input_file)
 
   return os.path.join(os.path.dirname(params['in']), input_source)
 
@@ -482,40 +484,6 @@ def handle_subtitle_extraction(params):
     print('\n'); exit(0)
 
 ##################################################################################################
-def process_encoding_settings(params):
-
-  if not params.get('crf'):
-    
-    if params.get('rs') and len(params['rs']) == 2:
-      resulting_height = int(params['rs'][1])
-    else:
-      try:
-        resulting_height = params['dim'][1]
-      except:
-        resulting_height = 720
-
-    if resulting_height > 900 and resulting_height <= 1100:
-      crf = 23
-    elif resulting_height > 700 and resulting_height <= 900:
-      crf = 21
-    elif resulting_height > 500 and resulting_height <= 700:
-      crf = 19
-    elif resulting_height > 300 and resulting_height <= 500:
-      crf = 18
-
-    if params.get('hevc'):
-      crf -= 2
-
-    params['crf'] = crf
-
-  if not params.get('aqm'):
-    params['aqm'] = 3
-  if not params.get('aqs'):
-    params['aqs'] = 1.00 if not params.get('hevc') else 0.8
-
-  return params
-
-##################################################################################################
 def handle_subtitle_trimming(params, subtitle_filename):
 
   if not len(times_list) >= 1:
@@ -589,6 +557,40 @@ def handle_subtitle_trimming(params, subtitle_filename):
   new_subs.save(subtitle_filename)
   print('Trimmed file written to: [%s]' % (subtitle_filename))
   print('#' * 50)
+
+##################################################################################################
+def process_encoding_settings(params):
+
+  if not params.get('crf'):
+    
+    if params.get('rs') and len(params['rs']) == 2:
+      resulting_height = int(params['rs'][1])
+    else:
+      try:
+        resulting_height = params['dim'][1]
+      except:
+        resulting_height = 720
+
+    if resulting_height > 900 and resulting_height <= 1100:
+      crf = 23
+    elif resulting_height > 700 and resulting_height <= 900:
+      crf = 21
+    elif resulting_height > 500 and resulting_height <= 700:
+      crf = 19
+    elif resulting_height > 300 and resulting_height <= 500:
+      crf = 18
+
+    if params.get('hevc'):
+      crf -= 2
+
+    params['crf'] = crf
+
+  if not params.get('aqm'):
+    params['aqm'] = 3
+  if not params.get('aqs'):
+    params['aqs'] = 1.00 if not params.get('hevc') else 0.8
+
+  return params
 
 ##################################################################################################
 def handle_muxing(params, options):
