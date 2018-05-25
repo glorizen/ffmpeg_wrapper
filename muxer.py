@@ -1,5 +1,6 @@
 import os
 from avs import parse_avs_chapters
+from ffmpeg import redo_audio_ffmpeg
 from external import start_external_execution
 
 from metadata import (
@@ -122,7 +123,22 @@ def get_sub_files(params):
   
   return sub_files
 
-def mux_episode(params, audio=False, subs=True, attachments=True):
+def add_chapter_file(filename, chapter_file):
+
+  if not os.path.isfile(filename):
+    print('File does not exist: %s' % (filename))
+    exit(0)
+
+  if not os.path.isfile(chapter_file):
+    print('File does not exist: %s' % (chapter_file))
+    exit(0)
+
+  command = 'mkvpropedit {filename} --chapters {chapter_file}'.format(
+    filename=filename, chapter_file=chapter_file)
+  
+  start_external_execution(command)
+
+def mux_episode(params, audio=True, subs=True, attachments=True):
 
   basename = os.path.splitext(params['in'])[0]
   video_file = '%s_Encoded.mkv' % (basename)
@@ -134,6 +150,8 @@ def mux_episode(params, audio=False, subs=True, attachments=True):
   expected_size = os.path.getsize(video_file)
 
   sub_files = get_sub_files(params)
+  audio_files = get_audio_files(params)
+
   video_codec = get_codec_name(params, video_file)
   video_codec = video_codec.upper()
   video_codec = video_codec.replace('H264', 'H.264')
@@ -209,6 +227,57 @@ def mux_episode(params, audio=False, subs=True, attachments=True):
   else:
     subtitle_command = str()
 
+  if audio:
+    audio_command = list()
+    is_default = True
+    has_defaulted = False
+
+    for audio_number, filename in enumerate(audio_files):
+      if not os.path.isfile(filename):
+        continue
+
+      try:
+        audio_lang = params['languages']['a'][audio_number]
+      except:
+        audio_lang = 'eng'
+
+      try:
+        audio_channels = params['audio_channels'][audio_number]
+        audio_channels = '(%d channeled)' % (audio_channels)
+      except:
+        audio_channels = str()
+
+      if filename.endswith(('.opus', '.ogg')):
+        audio_name = 'OPUS Audio'
+      elif filename.endswith('.eac3'):
+        audio_name = 'EAC3 Audio'
+      elif filename.endswith('.aac'):
+        audio_name = 'AAC Audio'
+      elif filename.endswith('.flac'):
+        audio_name = 'FLAC Audio'
+      
+      audio_name = '%s %s' % (audio_name, audio_channels)
+      
+      if not has_defaulted and audio_lang in ['jpn', 'ja']:
+        is_default = True
+        has_defaulted = True
+      else:
+        is_default = False
+
+      audio_command.append(
+        "--default-track 0:{is_default} " \
+        "--language 0:{audio_language} --track-name '0:{audio_name}' " \
+        "'(' '{filename}' ')'".format(
+          is_default='yes' if is_default else 'no',
+          audio_language=audio_lang, audio_name=audio_name,
+          filename=filename))
+      
+      expected_size += os.path.getsize(filename)
+
+    audio_command = ' '.join([x for x in audio_command])
+  else:
+    audio_command = str()
+
   if chapter_file:
     chapter_command = "--chapter-language eng --chapter-charset UTF-8 " \
       "--chapters '%s'" % (chapter_file)
@@ -237,11 +306,12 @@ def mux_episode(params, audio=False, subs=True, attachments=True):
   command = "mkvmerge --output '{output}' " \
     "--language 0:jpn --track-name '0:{video_name}' " \
     "--default-track 0:yes '(' '{encoded_video}' ')' " \
-    "{subtitle_command} {chapter_command} " \
+    "{audio_command} {subtitle_command} {chapter_command} " \
     "{source_command}".format(
       output=output_file,
       video_name='Hi10 Encode (%s)' % (video_codec),
       encoded_video=video_file,
+      audio_command=audio_command,
       subtitle_command=subtitle_command,
       chapter_command=chapter_command,
       source_command=source_command
@@ -266,7 +336,10 @@ def mux_episode(params, audio=False, subs=True, attachments=True):
       'exist: %s\n' % (output_file))
     exit(0)
 
-  return output_file
+  return {
+    'output': output_file,
+    'attached_chapter': chapter_file
+  }
 
 def ffmpeg_audio_mux(params, mux_to_filename):
 
@@ -334,12 +407,19 @@ def ffmpeg_audio_mux(params, mux_to_filename):
     return
 
   command = 'ffmpeg -i {video_file} {audio_input} -map 0:v? -c:v copy ' \
-    '{audio_mapping} -map 0:s? -c:s copy -map 0:t? {output}'.format(
+    '{audio_mapping} -map 0:s? -c:s copy -map 0:t? -y {output}'.format(
       video_file=mux_to_filename, audio_input=audio_input,
       audio_mapping=audio_mapping, output=output_file
     )
   
-  start_external_execution(command)
+  caught = start_external_execution(command,
+    catchphrase=['new cluster', 'timestamp'])
+
+  if caught:
+    return {
+      'error': True,
+      'id': 'cluster-error'
+    }
 
   real_size = os.path.getsize(output_file)
   min_size = expected_size - (1024 * 1024 * 0.25)
@@ -358,6 +438,7 @@ def ffmpeg_audio_mux(params, mux_to_filename):
       print('Final Output: %s (%.2f MB)\n' % (mux_to_filename,
         real_size / 1024 / 1024))
       os.rename(output_file, mux_to_filename)
+      output_file = mux_to_filename
     else:
       print('Output filesize from ffmpeg is not within ' \
         'expectations.\nExpected Range: [%.2f MB - %.2f MB]\n' \
@@ -374,3 +455,18 @@ def ffmpeg_audio_mux(params, mux_to_filename):
     'output': output_file,
     'size': expected_size
   }
+  
+def muxing_with_audio(params, mux_result):
+
+  ffmpeg_result = ffmpeg_audio_mux(params, mux_result['output'])
+  
+  if ffmpeg_result.get('error'):
+    if ffmpeg_result.get('id') and \
+        'cluster-error' in ffmpeg_result['id']:
+      mux_result = mux_episode(params)
+      ffmpeg_output = redo_audio_ffmpeg(params, mux_result['output'])
+  else:
+    ffmpeg_output = ffmpeg_result['output']
+
+  if mux_result['attached_chapter']:
+    add_chapter_file(ffmpeg_output, mux_result['attached_chapter'])

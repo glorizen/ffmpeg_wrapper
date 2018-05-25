@@ -17,8 +17,10 @@ from chapters import (
 from avs import (
   source_from_avscript,get_trim_times, get_custom_commands)
 from muxer import (
+  add_chapter_file,
   attach_fonts, merge_video,
-  mux_episode, ffmpeg_audio_mux)
+  mux_episode, ffmpeg_audio_mux,
+  muxing_with_audio)
 
 ##################################################################################################
 class FolderNotFoundError(Exception):
@@ -55,50 +57,54 @@ def get_params():
   
   parser.add_argument('-node', default=-1, type=int, 
     help='computing node that will be sshed into and then used for encoding.')
-  parser.add_argument('-nohup', type=str, default=str(), help='filename which will contain stdout, stderr. ' \
+  parser.add_argument('-nohup', type=str, default=str(), help='starts process in background ' \
+    'and redirects stdout, stderr to <NOHUP>. ' \
     'Also puts the job to background using nohup.')
-
-  parser.add_argument('-rs', type=str, help='this option will resize output video. ' \
+  parser.add_argument('-rs', type=str, help='resizes output video. ' \
     'e.g. 1280:720 will give you 720p video. 1280:-1 will give you width of 1280 and height with ' \
     'respective aspect ratio. Same will apply for given height like -1:720')
-  
-  parser.add_argument('-dest', type=str, help='this option will create output file to given destination ' \
+  parser.add_argument('-dest', type=str, help='creates output file to given destination ' \
     'folder name. Files will be created there to begin with rather than moving them to the folder ' \
     'after completion.')
-
-  parser.add_argument('-trim', type=int, help='this option will process given trimmed section only ' \
+  parser.add_argument('-trim', type=int, help='processes given trimmed section only ' \
     'while ignoring rest of the video.')
-
-  parser.add_argument('-subtrim', action='store_true', help='this option will trim subtitles using pysubs.')
-  parser.add_argument('-fake', type=str, help='this option will add fake streams to detected source.')
-  parser.add_argument('-track', type=int, help='this option will process given track id stream only ' \
+  parser.add_argument('-subtrim', action='store_true', help='trims subtitles using pysubs.' \
+    'trim will occur if input is an avscript (.avs) file with Trim commands.')
+  parser.add_argument('-fake', type=str, help='adds fake metadata for streams to detected source. ' \
+    'e.g. s:2 will add subtitle stream with track id 2. ' \
+    'e.g. a:1,s:2,a:3 will add two audio streams at 1 & 3 track id and ' \
+    'a subtitle stream at track id 2.')
+  parser.add_argument('-track', type=int, help='processes given track id stream only ' \
     'while ignoring rest of the streams.')
 
-  parser.add_argument('-fr', type=float, help='this option will assume the frame rate for the source file.')
-  parser.add_argument('-hevc', action='store_true', help='this option enables HEVC encoding rather than x264.')
-  parser.add_argument('-aac', action='store_true', help='this option enables AAC audio encoding rather than OPUS.')
+  parser.add_argument('-fr', type=float, help='assumes the frame rate for the source file to <FR>.')
+  parser.add_argument('-hevc', action='store_true', help='enables HEVC encoding rather than x264.')
+  parser.add_argument('-aac', action='store_true', help='enables AAC audio encoding rather than OPUS.')
   
   parser.add_argument('-prompt', action='store_true', 
-    help='this option will prompt user to confirm before writing to disk.')
+    help='prompts user to confirm before writing to disk.')
   parser.add_argument('-x', action='store_true', 
-    help='this option will execute the bash script, if created any, at the end.')
+    help='executes the bash script, if created any, at the end.')
 
-  parser.add_argument('-nthread', action='store_true', help='this option will enable multithreading of ffmpegs.')
-  parser.add_argument('-vn', action='store_true', help='this option will disable video encoding.')
-  parser.add_argument('-an', action='store_true', help='this option will disable audio encoding.')
-  parser.add_argument('-sn', action='store_true', help='this option will disable subtitle encoding.')
-  parser.add_argument('-tn', action='store_true', help='this option will disable attachments.')
-  parser.add_argument('-cn', action='store_true', help='this option will disable chapters muxing from source.')
-  parser.add_argument('-cc', action='store_true', help='this option will create chapter file from trims.')
-  parser.add_argument('-mx', action='store_true', help='this option muxes streams at the end by mkvmerge.')
-  parser.add_argument('-hi', action='store_true', help='this option will use ffmpeg-hi that has non-free libs.')
-  parser.add_argument('-map_ch', action='store_true', help='this option will attach default chapter file.')
+  parser.add_argument('-nthread', action='store_true', help='disables multithreading of ffmpegs. ' \
+    'Otherwise each trimmed section will get a ffmpeg process in concurrency.')
+  parser.add_argument('-vn', action='store_true', help='disables video encoding.')
+  parser.add_argument('-an', action='store_true', help='disables audio encoding.')
+  parser.add_argument('-sn', action='store_true', help='disables subtitle encoding / copying.')
+  parser.add_argument('-tn', action='store_true', help='disables attachments processing from source.')
+  parser.add_argument('-cn', action='store_true', help='disables chapters muxing from source.')
+  parser.add_argument('-cc', action='store_true', help='creates chapter file from trims.')
+  parser.add_argument('-mx', action='store_true', help='muxes streams at the end by mkvmerge and / or ffmpeg.')
+  parser.add_argument('-hi', action='store_true', help='uses ffmpeg-hi that has non-free libs.')
+  parser.add_argument('-map_ch', action='store_true', help='attaches default chapter file.')
 
   parser.add_argument('-op', type=str, help='specify opening file for .mkv OC.')
   parser.add_argument('-ed', type=str, help='specify ending file for .mkv OC.')
 
-  parser.add_argument('-delay', type=int, help='this option will enable subtitle delay')
-  parser.add_argument('-attach', type=str, help='this option will attach fonts to input file.')
+  parser.add_argument('-delay', type=int, help='this option will enable subtitle delay. ' \
+    '<DELAY> can be negative as well.')
+  parser.add_argument('-attach', type=str, help='this option will attach fonts to input file. ' \
+    '<ATTACH> can be a path to directory or a font file.')
 
   params = parser.parse_args().__dict__
   params = process_params(params)
@@ -605,7 +611,7 @@ def handle_muxing(params, options):
   elif params['an'] and not(params['vn'] or params['sn'] or
     params['tn']):
     # use mkvmerge to merge video, subs, attachments and chapters.
-    mux_episode(params)
+    mux_episode(params, audio=False)
     exit(0)
   
   elif params['an'] and params['sn'] and not params['tn']:
@@ -621,22 +627,24 @@ def handle_muxing(params, options):
   elif params['sn'] and params['tn'] and not params['an']:
     # use mkvmerge to merge video and chapters.
     # then use ffmpeg to merge audio with output of above mux.
-    output_filename = mux_episode(params, audio=False,
+    mux_result = mux_episode(params, audio=False,
       subs=False, attachments=False)
-    ffmpeg_audio_mux(params, output_filename)
+    muxing_with_audio(params, mux_result)
     exit(0)
 
   elif params['tn'] and not params['sn'] and not params['an']:
     # use mkvmerge to merge video, subs and chapters.
     # then use ffmpeg to merge audio with output of above mux.
-    output_filename = mux_episode(params, audio=False,
+    mux_result = mux_episode(params, audio=False,
       attachments=False)
-    ffmpeg_audio_mux(params, output_filename)
+    muxing_with_audio(params, mux_result)
     exit(0)
   
   else:
-    output_filename = mux_episode(params, audio=False)
-    ffmpeg_audio_mux(params, output_filename)
+    # use mkvmerge to merge video, subs, attachemnts (fonts) and chapters.
+    # then use ffmpeg to merge audio with output of above mux.
+    mux_result = mux_episode(params, audio=False)
+    muxing_with_audio(params, mux_result)
     exit(0)
 
 ##################################################################################################
