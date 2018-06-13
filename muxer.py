@@ -416,6 +416,7 @@ def ffmpeg_audio_mux(params, mux_to_filename):
     catchphrase=['new cluster', 'timestamp'])
 
   if caught:
+    os.remove(output_file)
     return {
       'error': True,
       'id': 'cluster-error'

@@ -78,6 +78,7 @@ def get_params():
     'while ignoring rest of the streams.')
 
   parser.add_argument('-fr', type=float, help='assumes the frame rate for the source file to <FR>.')
+  parser.add_argument('-r', type=float, help='converts the frame rate for the output file to <R>.')
   parser.add_argument('-hevc', action='store_true', help='enables HEVC encoding rather than x264.')
   parser.add_argument('-aac', action='store_true', help='enables AAC audio encoding rather than OPUS.')
   
@@ -216,6 +217,18 @@ def get_fake_tracks(params):
 ##################################################################################################
 def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
 
+  frame_cut = None
+  if params.get('cuts') and params['cuts']['original'].get('frames'):
+
+    original = params['cuts']['original']
+    if times in original['timestamps']:
+      index = original['timestamps'].index(times)
+      frame_cut = original['frames'][index]
+
+  if frame_cut:
+    start_frame = frame_cut[0]
+    end_frame = frame_cut[1] + 1
+
   if times:
     start = '%.3f' % (times[0]); end = '%.3f' % (times[1])
     start_format = str(timedelta(seconds=int(start.split('.')[0]), milliseconds=int(start.split('.')[1])))
@@ -223,16 +236,12 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
 
     # if params['source_delay']:
     #   keyframe_delay = -1 * int(params['source_delay'])
-
     #   seconds, millisecs = [int(x) for x in end.split('.')]
     #   delayed_end = ((seconds * 1000) + millisecs) + keyframe_delay
     #   delayed_end = '%.3f' % (delayed_end / 1000)
-
     #   delayed_end_format = str(timedelta(seconds=int(delayed_end.split('.')[0]),
     #                            milliseconds=int(delayed_end.split('.')[1])))
-      
     #   keyframes = '-force_key_frames %s' % (delayed_end_format)
-
     # else:
     #   keyframes = '-force_key_frames %s' % (end_format)
 
@@ -250,30 +259,75 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
 
   if params['dest']:
     temp_name = '"%s"' % (os.path.join(params['dest'], temp_name))
-    
-  if params['rs']:
-    video_scaling = '-vf scale=%s:%s' % (params['rs'][0], params['rs'][1])
+  
+  video_filters = str()
+  
+  if frame_cut:
+    video_filters += '[0:v]trim=start_frame={start}:' \
+      'end_frame={end},setpts=PTS-STARTPTS[part];'.format(
+        start=start_frame, end=end_frame)
+  
+  if params.get('r'):
+    # default for ffmpeg. chooses to be CRF or VFR
+    # depending upon muxer. might result in frame
+    # duplication or frame drop.
+    vsync = '-vsync -1'
   else:
-    video_scaling = str()
+    # let each frame pass through. no drop / duplication.
+    # shouldn't be used when forcing output frame rate
+    # with -r option in ffmpeg.
+    vsync = '-vsync 0'
+
+  if params['rs'] and frame_cut:
+    video_filters += '[part]scale={width}:{height}[out];'.format(
+        width=params['rs'][0], height=params['rs'][1])
+  elif params['rs'] and not frame_cut:
+    video_filters += '[0:v]scale={width}:{height}[out];'.format(
+        width=params['rs'][0], height=params['rs'][1])
+  
+  if video_filters:
+    video_filters = video_filters.strip(';')
+    video_filters = '-filter_complex "%s"' % (video_filters)
 
   if params['vn']:
     video_encoding = '-vn'
   else:
-    if params['hevc']:
-      video_encoding = '-map 0:v -c:v libx265 -preset slower -x265-params crf=%s:aq-mode=%s:' \
-        'aq-strength=%s:subme=5' % (params['crf'], params['aqm'], params['aqs'])
-    else:
-      video_encoding = '-map 0:v -c:v libx264 -preset veryslow -crf %s -aq-mode %s -aq-strength %s' % (
-        params['crf'], params['aqm'], params['aqs'])
 
-    if params.get('frame_rate'):
-      video_encoding += ' -r %.3f' % (params['frame_rate'])
+    if video_filters:
+      filter_output = video_filters.split('[')[-1].split(']')[0]
+      video_filters = '%s -map [%s]' % (video_filters, filter_output)
+    else:
+      video_filters = '-map 0:v'
+
+    if params['hevc']:
+      video_encoding = '{vfilters} -c:v libx265 ' \
+        '-preset slower -x265-params crf={crf}:aq-mode={aq_mode}:' \
+        'aq-strength={aq_strength}:subme=5'.format(
+          vfilters=video_filters, crf=params['crf'],
+          aq_mode=params['aqm'], aq_strength=params['aqs'])
+    else:
+      video_encoding = '{vfilters} -c:v libx264 ' \
+        '-preset veryslow -crf {crf} -aq-mode {aq_mode} ' \
+        '-aq-strength {aq_strength}'.format(
+          vfilters=video_filters, crf=params['crf'],
+          aq_mode=params['aqm'], aq_strength=params['aqs'])
+
+    if params.get('r'):
+      # video_encoding += ' -r %.3f' % (params['frame_rate'])
+      video_encoding += ' -r %.3f' % (params.get('r'))
 
   if params['an']:
     audio_encoding = '-an'
   else:
+
+    if times:
+      audio_cut = '-ss {start} -to {end}'.format(
+        start=start_format, end=end_format)
+    else:
+      audio_cut = str()
+
     if params.get('aac'):
-      audio_encoder = '-c:a libfdk_aac -vbr 4'
+      audio_encoder = '%s -c:a libfdk_aac -vbr 4' % (audio_cut)
     else:
       if track_id != -1:
         channels = params['audio_channels'][params['all_tracks']['a'].index(track_id)]
@@ -281,11 +335,14 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
         channels = params['audio_channels'][-1]
       
       if channels > 2:
-        audio_encoder = '-c:a libopus -af aformat=channel_layouts="7.1|5.1|stereo" ' \
-          '-b:a %d -vbr on -compression_level 10' % (80000 * (channels / 2))
+        audio_encoder = '{audio_cut} -c:a libopus -af ' \
+          'aformat=channel_layouts="7.1|5.1|stereo" ' \
+          '-b:a {bitrate} -vbr on -compression_level 10'.format(
+            audio_cut=audio_cut, bitrate=80000 * (channels / 2))
       else:
-        audio_encoder = '-c:a libopus -b:a %d -vbr on -compression_level 10' % (
-          80000 * (channels / 2))
+        audio_encoder = '{audio_cut} -c:a libopus -b:a {bitrate} ' \
+          '-vbr on -compression_level 10'.format(
+          audio_cut=audio_cut, bitrate=80000 * (channels / 2))
 
     if track_id is not -1:
       audio_encoding = '-map 0:%d %s' % (track_id, audio_encoder)
@@ -328,15 +385,25 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
     negative_delay = 0
   
   if times and not temp_name.endswith('ass'):
-    ffmpeg_command = '%s -itsoffset %.3f -i %s -vsync 0 -ss %s -to %s %s %s %s %s %s %s %s %s' % (
-      ffmpeg_version, negative_delay, params['source_file'], start_format,
-      end_format, video_encoding, audio_encoding, subtitle_transcoding,
-      attachments, chapter_attachment, video_scaling, temp_name, threading)
+    ffmpeg_command = '{ffmpeg} -itsoffset {offset} -i {input} ' \
+      '{vsync} {video} {audio} {subtitle} {attachments} {chapter} ' \
+      '{output} {threading}'.format(
+        ffmpeg=ffmpeg_version, offset='%.3f' % (negative_delay),
+        input=params['source_file'], vsync=vsync,
+        video=video_encoding, audio=audio_encoding,
+        subtitle=subtitle_transcoding,
+        attachments=attachments, chapter=chapter_attachment,
+        output=temp_name, threading=threading)
   else:
-    ffmpeg_command = '%s -itsoffset %.3f -i %s -vsync 0 %s %s %s %s %s %s %s %s' % (
-      ffmpeg_version, negative_delay, params['source_file'], video_encoding,
-      audio_encoding, subtitle_transcoding, attachments, chapter_attachment, 
-      video_scaling, temp_name, threading)
+    ffmpeg_command = '{ffmpeg} -itsoffset {offset} -i {input} ' \
+      '{vsync} {video} {audio} {subtitle} {attachments} {chapter} ' \
+      '{output} {threading}'.format(
+        ffmpeg=ffmpeg_version, offset='%.3f' % (negative_delay),
+        input=params['source_file'], vsync=vsync,
+        video=video_encoding, audio=audio_encoding,
+        subtitle=subtitle_transcoding, attachments=attachments,
+        chapter=chapter_attachment, output=temp_name,
+        threading=threading)
 
   return {
     'command': ffmpeg_command,
@@ -688,11 +755,6 @@ if __name__ == '__main__':
         params['frame_rate'] = get_frame_rate(params['source_file'])
 
     times_list = get_trim_times(params, params['in'], params['frame_rate'])
-
-    if not params.get('cuts'):
-      params['cuts'] = {'original': dict()}
-      params['cuts']['original']['timestamps'] = times_list
-
     params['source_delay'] = get_metadata(
       params, params['source_file']).get('delay')
 
@@ -818,10 +880,9 @@ if __name__ == '__main__':
 
   if (params['avs'] and not times_list) or not params['avs'] or len(times_list) == 1:
     times = times_list[0] if len(times_list) == 1 else list()
-    
+
     if params.get('track') is not None:
       ffmpeg = get_ffmpeg_command(params, times, is_out=out_name, track_id=params['track'])
-    
     else:
       ffmpeg = get_ffmpeg_command(params, times, is_out=out_name)
     

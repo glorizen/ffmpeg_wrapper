@@ -138,4 +138,10 @@ def get_trim_times(params, input_file, frame_rate):
 
   print('Trimmed Frames:', trims_list)
   print('Trimmed timestamps:', times_list)
+
+  if not params.get('cuts'):
+    params['cuts'] = {'original': {}}
+  
+  params['cuts']['original']['frames'] = trims_list
+  params['cuts']['original']['timestamps'] = times_list
   return times_list
