@@ -112,15 +112,27 @@ def get_audio_files(params):
 
 def get_sub_files(params):
 
+  sub_files = list()
   basename = os.path.splitext(params['in'])[0]
 
   sub_tracks = params['all_tracks']['s']
   if params['fake_tracks'].get('s'):
     sub_tracks.extend(params['fake_tracks']['s'])
 
-  sub_files = ['%s_Subtitle_final_%d.ass' % (basename, sub_id)
-    for sub_id in sub_tracks]
-  
+  for index, track_id in enumerate(sub_tracks):
+    codec = params['all_codecs']['s'][index]
+    if 'ass' in codec.lower():
+      extension = 'ass'
+    elif 'subrip' in codec.lower():
+      extension = 'srt'
+    elif 'pgs' in codec.lower():
+      extension = 'pgs'
+
+    filename = '{basename}_Subtitle_final_{track_id}.{ext}'.format(
+      basename=basename, track_id=track_id, ext=extension)
+
+    sub_files.append(filename)
+
   return sub_files
 
 def add_chapter_file(filename, chapter_file):
@@ -205,7 +217,8 @@ def mux_episode(params, audio=True, subs=True, attachments=True):
       try:
         sub_name = params['titles']['s'][sub_number]
       except:
-        sub_name = 'Styled Subtitle (.ass)'
+        sub_name = 'Styled Subtitle (.ass)' \
+          if filename.endswith('.ass') else 'Subtitle'
       
       if not has_defaulted and sub_lang in ['eng', 'enm']:
         is_default = True
