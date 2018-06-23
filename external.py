@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import codecs
 import subprocess
 
 ##################################################################################################
@@ -47,7 +48,9 @@ def start_external_execution(external_command, catchphrase=None):
   print('_' * 50 + '\n' + '_' * 50 + '\n')
 
   if catchphrase:
-    tee_content = open(temp_name, 'r').readlines()
+    tee_content = codecs.open(
+      temp_name, 'r', 'utf8').readlines()
+
     try:
       os.remove(temp_name)
     except PermissionError:
