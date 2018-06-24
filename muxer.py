@@ -159,21 +159,79 @@ def get_sub_files(params):
 
   sub_tracks = params['all_tracks']['s']
   if params['fake_tracks'].get('s'):
-    sub_tracks.extend(params['fake_tracks']['s'])
+    fake_subs = params['fake_tracks'].get('s')
+    sub_tracks = set(sub_tracks) | set(fake_subs)
+    sub_tracks = list(sub_tracks)
 
   for index, track_id in enumerate(sub_tracks):
-    codec = params['all_codecs']['s'][index]
-    if 'ass' in codec.lower():
-      extension = 'ass'
-    elif 'subrip' in codec.lower():
-      extension = 'srt'
-    elif 'pgs' in codec.lower():
-      extension = 'pgs'
+    language = str()
+    extension = str()
+    title = str()
+
+    if params.get('fake'):
+      fake_subs = [x for x in params['fake'].split(',')
+                   if x.startswith('s')]
+
+      for entry in fake_subs:
+        details = entry.split(':')
+        id_ = None
+
+        for item in details:
+          key = item.split('=')[0]
+          value = item.split('=')[1] if len(
+            item.split('=')) > 1 else None
+
+          if 'id' in key:
+            id_ = int(value)
+          if 'lang' in key:
+            language = value
+          if 'ext' in key:
+            extension = value
+          if 'title' in key:
+            title = value
+
+        if id_ is not None and track_id != id_:
+          language = str()
+          extension = str()
+          title = str()
+
+    if not extension:
+      if params.get('all_codecs') and params['all_codecs'].get('s') \
+          and len(params['all_codecs']['s']) > index:
+
+        codec = params['all_codecs']['s'][index]
+        if 'ass' in codec.lower():
+          extension = 'ass'
+        elif 'subrip' in codec.lower():
+          extension = 'srt'
+        elif 'pgs' in codec.lower():
+          extension = 'pgs'
+      else:
+        extension = 'ass'
+
+    if not language:
+      if params.get('languages') and params['languages'].get('s') \
+          and len(params['languages']['s']) > index:
+        language = params['languages']['s'][index]
+      else:
+        language = 'eng'
+
+    if not title:
+      try:
+        title = params['titles']['s'][index]
+      except:
+        title = 'Styled Subtitle (.ass)' \
+          if extension.endswith('.ass') else 'Subtitle'
 
     filename = '{basename}_Subtitle_final_{track_id}.{ext}'.format(
       basename=basename, track_id=track_id, ext=extension)
 
-    sub_files.append(filename)
+    sub_files.append({
+      'name': filename,
+      'language': language,
+      'extension': extension,
+      'title': title
+    })
 
   return sub_files
 
@@ -202,6 +260,7 @@ def mux_episode(params, audio=True, subs=True, attachments=True):
     exit(0)
   
   expected_size = os.path.getsize(video_file)
+  get_lang_and_title(params, params['source_file'])
 
   sub_files = get_sub_files(params)
   audio_files = get_audio_files(params)
@@ -210,7 +269,6 @@ def mux_episode(params, audio=True, subs=True, attachments=True):
   video_codec = video_codec.upper()
   video_codec = video_codec.replace('H264', 'H.264')
 
-  get_lang_and_title(params, params['source_file'])
 
   oc = False
   chapter_file = None
@@ -246,22 +304,14 @@ def mux_episode(params, audio=True, subs=True, attachments=True):
     subtitle_command = list()
     is_default = True
     has_defaulted = False
-    for sub_number, filename in enumerate(sub_files):
+    for sub_file in sub_files:
 
-      if not os.path.isfile(filename):
+      if not os.path.isfile(sub_file['name']):
         continue
 
-      try:
-        sub_lang = params['languages']['s'][sub_number]
-      except:
-        sub_lang = 'eng'
+      sub_lang = sub_file['language']
+      sub_name = sub_file['title']
 
-      try:
-        sub_name = params['titles']['s'][sub_number]
-      except:
-        sub_name = 'Styled Subtitle (.ass)' \
-          if filename.endswith('.ass') else 'Subtitle'
-      
       if not has_defaulted and sub_lang in ['eng', 'enm']:
         is_default = True
         has_defaulted = True
@@ -274,9 +324,9 @@ def mux_episode(params, audio=True, subs=True, attachments=True):
         "'(' '{filename}' ')'".format(
           is_default='yes' if is_default else 'no',
           subtitle_language=sub_lang, subtitle_name=sub_name,
-          filename=filename))
+          filename=sub_file['name']))
       
-      expected_size += os.path.getsize(filename)
+      expected_size += os.path.getsize(sub_file['name'])
 
     subtitle_command = ' '.join([x for x in subtitle_command])
   else:

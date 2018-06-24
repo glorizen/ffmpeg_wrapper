@@ -197,12 +197,19 @@ def get_fake_tracks(params):
 
       if not details:
         continue
-      
-      stream_type = details[0]
 
-      if len(details) > 1:
-        stream_id = int(details[1])
-      else:
+      stream_type = details[0]
+      stream_id = None
+
+      for item in details:
+        key = item.split('=')[0]
+        value = item.split('=')[1] if len(
+          item.split('=')) > 1 else None
+
+        if 'id' in key:
+          stream_id = int(value)
+      
+      if stream_id is None:
         available_id = [x for x in range(1, 20) if x not in taken_ids][0]
         stream_id = available_id
         taken_ids.append(available_id)
