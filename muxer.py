@@ -97,6 +97,48 @@ def merge_video(params, temp_filenames, output_filename):
         print('Deleting: %s' % (os.path.abspath(filename)))
         os.remove(filename)
 
+def redo_mkvmerge(params, filename):
+  if not os.path.isfile(filename):
+    print('File does not exist: %s' % (filename))
+    exit(0)
+
+  basename, extension = os.path.splitext(filename)
+  output_name = basename + '_mmgredone' + extension
+
+  mmg_command = "mkvmerge --output '{output_name}' " \
+    "'(' '{input_name}' ')'".format(
+      output_name=output_name, input_name=filename)
+  
+  start_external_execution(mmg_command)
+
+  if not os.path.isfile(output_name):
+    print('Expected output from ffmpeg does not exist: %s' % (output_name))
+    exit(0)
+  else:
+    input_size = os.path.getsize(filename)
+    output_size = os.path.getsize(output_name)
+
+    min_size = input_size - (1024 * 1024 * 1)
+    max_size = input_size + (1024 * 1024 * 2)
+
+    if min_size < output_size < max_size:
+      print('Removing file: %s (%.2f MB)' % (
+        filename, input_size / 1024 / 1024))
+      os.remove(filename)
+    
+      print('Renaming: [%s] -> [%s]' % (output_name, filename))
+      os.rename(output_name, filename)
+      output_name = filename
+    else:
+      print('Output filesize from mkvmerge (repass) is unexpected.\n' \
+        'Expected filesize: [%.2f - %.2f] [%.2f - %.2f]\n' \
+        '%s: (%.2f) (%.2f)' % (min_size, max_size,
+          min_size / 1024 / 1024, max_size / 1024 / 1024,
+          output_name, output_size, output_size / 1024 / 1024))
+      exit(0)
+
+  return output_name
+
 def get_audio_files(params):
 
   basename = os.path.splitext(params['in'])[0]
@@ -478,7 +520,8 @@ def muxing_with_audio(params, mux_result):
     if ffmpeg_result.get('id') and \
         'cluster-error' in ffmpeg_result['id']:
       mux_result = mux_episode(params)
-      ffmpeg_output = redo_audio_ffmpeg(params, mux_result['output'])
+      # ffmpeg_output = redo_audio_ffmpeg(params, mux_result['output'])
+      ffmpeg_output = redo_mkvmerge(params, mux_result['output'])
   else:
     ffmpeg_output = ffmpeg_result['output']
 

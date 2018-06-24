@@ -56,7 +56,7 @@ def redo_audio_ffmpeg(params, filename):
         output_name = filename
       else:
         print('Output filesize from ffmpeg is unexpected.\n' \
-          'Expected filesze: [%.2f - %.2f]\n' \
+          'Expected filesize: [%.2f - %.2f]\n' \
           '%s: (%.2f)' % (min_size, max_size,
             output_name, output_size))
         exit(0)
