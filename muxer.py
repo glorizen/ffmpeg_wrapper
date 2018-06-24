@@ -118,8 +118,8 @@ def redo_mkvmerge(params, filename):
     input_size = os.path.getsize(filename)
     output_size = os.path.getsize(output_name)
 
-    min_size = input_size - (1024 * 1024 * 1)
-    max_size = input_size + (1024 * 1024 * 2)
+    min_size = input_size - (1024 * 1024 * 3)
+    max_size = input_size + (1024 * 1024 * 3)
 
     if min_size < output_size < max_size:
       print('Removing file: %s (%.2f MB)' % (
@@ -131,8 +131,8 @@ def redo_mkvmerge(params, filename):
       output_name = filename
     else:
       print('Output filesize from mkvmerge (repass) is unexpected.\n' \
-        'Expected filesize: [%.2f - %.2f] [%.2f - %.2f]\n' \
-        '%s: (%.2f) (%.2f)' % (min_size, max_size,
+        'Expected filesize: [%.2f - %.2f] [%.2f MB - %.2f MB]\n' \
+        '%s: (%.2f) (%.2f MB)' % (min_size, max_size,
           min_size / 1024 / 1024, max_size / 1024 / 1024,
           output_name, output_size, output_size / 1024 / 1024))
       exit(0)
@@ -471,10 +471,15 @@ def ffmpeg_audio_mux(params, mux_to_filename):
     catchphrase=['new cluster', 'timestamp'])
 
   if caught:
-    os.remove(output_file)
+    os.remove(mux_to_filename)
+    print('Renaming: [%s] -> [%s]' % (output_file, mux_to_filename))
+    os.rename(output_file, mux_to_filename)
+    output_file = mux_to_filename
+
     return {
       'error': True,
-      'id': 'cluster-error'
+      'id': 'cluster-error',
+      'output': output_file
     }
 
   real_size = os.path.getsize(output_file)
@@ -519,9 +524,9 @@ def muxing_with_audio(params, mux_result):
   if ffmpeg_result.get('error'):
     if ffmpeg_result.get('id') and \
         'cluster-error' in ffmpeg_result['id']:
-      mux_result = mux_episode(params)
+      # mux_result = mux_episode(params)
       # ffmpeg_output = redo_audio_ffmpeg(params, mux_result['output'])
-      ffmpeg_output = redo_mkvmerge(params, mux_result['output'])
+      ffmpeg_output = redo_mkvmerge(params, ffmpeg_result['output'])
   else:
     ffmpeg_output = ffmpeg_result['output']
 
