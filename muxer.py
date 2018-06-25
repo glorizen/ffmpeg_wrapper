@@ -570,15 +570,16 @@ def ffmpeg_audio_mux(params, mux_to_filename):
 def muxing_with_audio(params, mux_result):
 
   ffmpeg_result = ffmpeg_audio_mux(params, mux_result['output'])
-  
-  if ffmpeg_result.get('error'):
-    if ffmpeg_result.get('id') and \
-        'cluster-error' in ffmpeg_result['id']:
-      # mux_result = mux_episode(params)
-      # ffmpeg_output = redo_audio_ffmpeg(params, mux_result['output'])
-      ffmpeg_output = redo_mkvmerge(params, ffmpeg_result['output'])
-  else:
-    ffmpeg_output = ffmpeg_result['output']
+  ffmpeg_output = redo_mkvmerge(params, ffmpeg_result['output'])
+
+  # if ffmpeg_result.get('error'):
+  #   if ffmpeg_result.get('id') and \
+  #       'cluster-error' in ffmpeg_result['id']:
+  #     # mux_result = mux_episode(params)
+  #     # ffmpeg_output = redo_audio_ffmpeg(params, mux_result['output'])
+  #     ffmpeg_output = redo_mkvmerge(params, ffmpeg_result['output'])
+  # else:
+  #   ffmpeg_output = ffmpeg_result['output']
 
   if mux_result['attached_chapter']:
     add_chapter_file(ffmpeg_output, mux_result['attached_chapter'])
