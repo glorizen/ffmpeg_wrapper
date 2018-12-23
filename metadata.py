@@ -217,7 +217,7 @@ def get_metadata(params, filename):
     'utf-8').replace('\r', '').strip()
 
   metadata = dict()
-  metadata['duration'], suid = [x.replace('\r', '') for x in result.split('\n') if len(x) > 2]
+  metadata['duration'], suid = [x.replace('\r', '') for x in result.split('\n') if len(x) > 0]
   metadata['suid'] = "{0:X}".format(int(suid))
 
   while len(metadata['suid']) < 32:

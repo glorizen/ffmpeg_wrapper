@@ -141,12 +141,16 @@ def get_names_and_order(times_list, params):
       names = ['Episode', 'Preview']
       order = times_list
 
-  elif len(times_list) == 3 and (params['op'] and params['ed']):
+  elif len(times_list) in [3, 4] and (params['op'] and params['ed']):
     if fixed_names:
       names = list(); order = list()
+      offset = 0
       is_op = True
 
       for index, times in enumerate(times_list.copy()):
+
+        if offset:
+          times = (times[0] - offset, times[1] - offset)
 
         if index == 0 and times[0] > 50:
           names.append('Opening')
@@ -156,7 +160,7 @@ def get_names_and_order(times_list, params):
           times_list = [(x[0] - offset, x[1] - offset) for x in times_list]
           is_op = False
 
-        if index < len(times_list) - 1 and times_list[index + 1][0] - times[1] > 50:
+        if index < len(times_list) - 1 and times_list[index + 1][0] - times_list[index][1] > 50:
           names.append(fixed_names[index]); names.append('Opening' if is_op else 'Ending')
           order.append(times_list[index]); order.append(params['op'] if is_op else params['ed'])
           is_op = False
