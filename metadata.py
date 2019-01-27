@@ -217,15 +217,38 @@ def get_metadata(params, filename):
     'utf-8').replace('\r', '').strip()
 
   metadata = dict()
-  metadata['duration'], suid = [x.replace('\r', '') for x in result.split('\n') if len(x) > 0]
-  metadata['suid'] = "{0:X}".format(int(suid))
+  suid = None
 
-  while len(metadata['suid']) < 32:
-    metadata['suid'] = '0%s' % (metadata['suid'])
+  if len(result.split('\n')) >=2:
+    filtered_result = [x.replace('\r', '') for x in result.split('\n') if len(x) >= 1]
+    if len(filtered_result) >= 2:
+      metadata['duration'], suid = [x.replace('\r', '') for x in result.split('\n') if len(x) >= 1]
+    else:
+      metadata['duration'] = [x.replace('\r', '') for x in result.split('\n') if len(x) >= 1]
+
+  if suid:
+    metadata['suid'] = "{0:X}".format(int(suid))
+
+    while len(metadata['suid']) < 32:
+      metadata['suid'] = '0%s' % (metadata['suid'])
 
   metadata['name'] = filename
-
   metadata['duration'] = video_result.split('\n')[0]
-  metadata['delay'] = video_result.split('\n')[1]
-  
+
+  if len(video_result.split('\n')) > 1:
+    metadata['delay'] = video_result.split('\n')[1]
+                                                                                  
   return metadata
+#  metadata = dict()
+#  metadata['duration'], suid = [x.replace('\r', '') for x in result.split('\n') if len(x) > 0]
+#  metadata['suid'] = "{0:X}".format(int(suid))
+
+#  while len(metadata['suid']) < 32:
+#    metadata['suid'] = '0%s' % (metadata['suid'])
+
+#  metadata['name'] = filename
+
+#  metadata['duration'] = video_result.split('\n')[0]
+#  metadata['delay'] = video_result.split('\n')[1]
+  
+#  return metadata

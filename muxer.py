@@ -7,7 +7,7 @@ from metadata import (
   get_metadata, get_lang_and_title,
   get_codec_name, get_duration)
 
-ATTACHMENT_SIZE_RANGE = 15
+ATTACHMENT_SIZE_RANGE = 30
 
 def get_font_details(font_file):
 
@@ -282,6 +282,10 @@ def mux_episode(params, audio=True, subs=True, attachments=True):
       if ahead[0] - current[1] > 20:
         oc = True
         break
+
+    if len(timestamps) == 1 and timestamps[0][0] > 30 and (
+	 timestamps[0][1] - timestamps[0][0] > 300):
+       oc = True
 
   if oc:
     chapter_file = '%s_chapter.xml' % (basename)
