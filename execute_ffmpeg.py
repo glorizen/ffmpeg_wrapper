@@ -308,13 +308,13 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
 
     if params['hevc']:
       video_encoding = '{vfilters} -c:v libx265 ' \
-        '-preset slower -x265-params crf={crf}:aq-mode={aq_mode}:' \
+        '-preset slower -pix_fmt yuv420p10le -x265-params crf={crf}:aq-mode={aq_mode}:' \
         'aq-strength={aq_strength}:subme=5'.format(
           vfilters=video_filters, crf=params['crf'],
           aq_mode=params['aqm'], aq_strength=params['aqs'])
     else:
       video_encoding = '{vfilters} -c:v libx264 ' \
-        '-preset veryslow -crf {crf} -aq-mode {aq_mode} ' \
+        '-preset veryslow -pix_fmt yuv420p10le -crf {crf} -aq-mode {aq_mode} ' \
         '-aq-strength {aq_strength}'.format(
           vfilters=video_filters, crf=params['crf'],
           aq_mode=params['aqm'], aq_strength=params['aqs'])
@@ -392,7 +392,7 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
     negative_delay = 0
   
   if times and not temp_name.endswith('ass'):
-    ffmpeg_command = '{ffmpeg} -itsoffset {offset} -i {input} ' \
+    ffmpeg_command = 'nice -n 15 {ffmpeg} -itsoffset {offset} -i {input} ' \
       '{vsync} {video} {audio} {subtitle} {attachments} {chapter} ' \
       '{output} {threading}'.format(
         ffmpeg=ffmpeg_version, offset='%.3f' % (negative_delay),
@@ -402,7 +402,7 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
         attachments=attachments, chapter=chapter_attachment,
         output=temp_name, threading=threading)
   else:
-    ffmpeg_command = '{ffmpeg} -itsoffset {offset} -i {input} ' \
+    ffmpeg_command = 'nice -n 15 {ffmpeg} -itsoffset {offset} -i {input} ' \
       '{vsync} {video} {audio} {subtitle} {attachments} {chapter} ' \
       '{output} {threading}'.format(
         ffmpeg=ffmpeg_version, offset='%.3f' % (negative_delay),
@@ -547,7 +547,7 @@ def handle_subtitle_extraction(params):
 
     output_name = params.get('in').split('.')[:-1]
     output_name = '.'.join(output_name) + '_Subtitle_final_%d.%s' % (track, extension)
-    output_name = os.path.join(params.get('input_dir'), output_name)
+    output_name = os.path.join(params.get('orig_dir'), output_name)
 
     mkvextract_command = 'mkvextract tracks "{source}" "{track_id}:{output}"'.format(
       source=os.path.join(params.get('orig_dir'), params.get('source_file')),
@@ -806,7 +806,7 @@ if __name__ == '__main__':
   if len(tracks['a']) > 1 and not params.get('track') and not params.get('an'):
     for track_id in tracks['a']:
       audio_options = '-hi -aac' if params.get('aac') else str()
-      python_command = 'python3 %s %s -track %d %s -nthread -x' % (__file__, params['in'], 
+      python_command = 'python3 %s %s -track %d %s -nthread -x' % (__file__, params['orig_in'], 
         track_id, audio_options)
       start_external_execution(python_command)
 
