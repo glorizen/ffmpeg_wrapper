@@ -106,6 +106,7 @@ def get_params():
     '<DELAY> can be negative as well.')
   parser.add_argument('-attach', type=str, help='this option will attach fonts to input file. ' \
     '<ATTACH> can be a path to directory or a font file.')
+  parser.add_argument('-dframe', type=str, help='draws frame number on video using filter graph.')
 
   params = parser.parse_args().__dict__
   params = process_params(params)
@@ -285,12 +286,22 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
     # with -r option in ffmpeg.
     vsync = '-vsync 0'
 
+  filters = list()
+
+  if params['rs']:
+    filters.append('scale={width}:{height}'.format(
+      width=params['rs'][0], height=params['rs'][1]))
+
+  if params['dframe']:
+    filters.append(
+      'drawtext=fontfile=' + params['dframe'] + ':'\
+      'text=\'%{frame_num}\':start_number=0:x=(w-(tw*1.1)):y=h-(1.2*lh):' \
+      'fontcolor=black:fontsize=24:box=1:boxcolor=white:boxborderw=5')
+
   if params['rs'] and frame_cut:
-    video_filters += '[part]scale={width}:{height}[out];'.format(
-        width=params['rs'][0], height=params['rs'][1])
+    video_filters += '[part]{complex}[out];'.format(complex=','.join(filters))
   elif params['rs'] and not frame_cut:
-    video_filters += '[0:v]scale={width}:{height}[out];'.format(
-        width=params['rs'][0], height=params['rs'][1])
+    video_filters += '[0:v]{complex}[out];'.format(complex=','.join(filters))
   
   if video_filters:
     video_filters = video_filters.strip(';')
@@ -592,15 +603,15 @@ def handle_subtitle_trimming(params, subtitle_filename):
   new_subs.fonts = subs.fonts.copy()
 
   shift = pysubs.misc.Time('00:00:00.000')
+  time_per_frame = ('%.4f' % (1 / float(params['frame_rate'])))[:-1]
   for (index, times) in enumerate(subtitle_times):
     if index > 0:
-      if index == len(subtitle_times) - 1:
-        time_per_frame = ('%.4f' % (1 / float(params['frame_rate'])))[:-1]
-        shift_offset = str(float(time_per_frame) * 0)
-        shift += times[0] - subtitle_times[index - 1][1] - pysubs.misc.Time(
-          '00:00:0' + shift_offset)
-      else:
-        shift += times[0] - subtitle_times[index - 1][1]
+      # if index == len(subtitle_times) - 1:
+      shift_offset = str(float(time_per_frame) * index)
+      shift += times[0] - subtitle_times[index - 1][1] - pysubs.misc.Time(
+	'00:00:0' + shift_offset)
+      # else:
+      #   shift += times[0] - subtitle_times[index - 1][1]
 
       shifting_time = [-x for x in shift.to_times()]
 
