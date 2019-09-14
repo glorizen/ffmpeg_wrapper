@@ -183,7 +183,7 @@ def get_lang_and_title(params, filename):
 
     probe_command = 'ffprobe -v fatal -of flat=s=_ -select_streams %s -show_entries ' \
       'stream_tags=title -show_entries stream_tags=language %s' % (
-        stream_type, os.path.basename(filename))
+        stream_type, filename)
 
     result = subprocess.Popen(probe_command, shell=True,
       stdout=subprocess.PIPE).stdout.read().decode('utf-8')

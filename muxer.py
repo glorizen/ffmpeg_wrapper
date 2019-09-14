@@ -7,7 +7,7 @@ from metadata import (
   get_metadata, get_lang_and_title,
   get_codec_name, get_duration)
 
-ATTACHMENT_SIZE_RANGE = 30
+ATTACHMENT_SIZE_RANGE = 40
 
 def get_font_details(font_file):
 
@@ -451,14 +451,17 @@ def mux_episode(params, audio=True, subs=True, attachments=True):
   }
 
 def ffmpeg_audio_mux(params, mux_to_filename):
-
+  
+  get_lang_and_title(params, params['source_file'])
   expected_size = os.path.getsize(mux_to_filename)
   audio_files = get_audio_files(params)
-  
+
   audio_input = list()
   audio_mapping = list()
   is_default = True
   has_defaulted = False
+  map_index = 0
+
   for index, filename in enumerate(audio_files):
 
     if not os.path.isfile(filename):
@@ -480,7 +483,7 @@ def ffmpeg_audio_mux(params, mux_to_filename):
       audio_name = 'FLAC Audio'
     
     audio_name = '%s %s' % (audio_name, audio_channels)
-    
+ 
     try:
       audio_lang = params['languages']['a'][index]
     except:
@@ -497,13 +500,14 @@ def ffmpeg_audio_mux(params, mux_to_filename):
       '-metadata:s:a:{ainput_index} language={audio_lang} ' \
       '-metadata:s:a:{ainput_index} title="{audio_name}" ' \
       '-disposition:a:{ainput_index} {is_default}'.format(
-        map_index=index + 1, ainput_index=index,
+        map_index=map_index + 1, ainput_index=map_index,
         audio_lang=audio_lang, audio_name=audio_name,
         is_default='default' if is_default else 'none')
 
     audio_mapping.append(a_map)
     audio_input.append(a_input)
     expected_size += os.path.getsize(filename)
+    map_index += 1
   
   audio_input = ' '.join([x for x in audio_input])
   audio_mapping = ' '.join([x for x in audio_mapping])
