@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import json
 import argparse
 import subprocess
 from datetime import timedelta
@@ -43,6 +44,15 @@ def process_params(params):
     
     if not os.path.isfile(params['in']):
       raise FileNotFoundError('Given input file does not exist: %s' % (params['in']))
+
+  if params['config'] and not os.path.isfile(params['config']):
+      raise FileNotFoundError('Given config file does not exist: %s' % (params['config']))
+  
+  params['config'] = json.load(open(params['config'], 'r')) if params['config'] else None
+  if os.path.basename(params['in']) in params['config']:
+    params['config'] = params['config'][os.path.basename(params['in'])]
+  else:
+    params['config'] = None
 
   return params
     
@@ -107,6 +117,7 @@ def get_params():
   parser.add_argument('-attach', type=str, help='this option will attach fonts to input file. ' \
     '<ATTACH> can be a path to directory or a font file.')
   parser.add_argument('-dframe', type=str, help='draws frame number on video using filter graph.')
+  parser.add_argument('-config', type=str, help='path to json config file.')
 
   params = parser.parse_args().__dict__
   params = process_params(params)
@@ -751,7 +762,13 @@ if __name__ == '__main__':
     params['avs'] = False
     print('Not an avscript. [Skipping custom commands processing from the given input]')
     params['source_file'] = params['in']
-    params['source_delay'] = 0
+
+    if params['config'] and params['config'].get('trims'):
+      params['frame_rate'] = params['fr'] if params['fr'] else get_frame_rate(params['in'])
+      params['source_delay'] = get_metadata(params, params['in']).get('delay')
+      times_list = get_trim_times(params, params['in'], params['frame_rate'])
+    else:
+      params['source_delay'] = 0
 
   else:
     params['avs'] = True
@@ -781,7 +798,6 @@ if __name__ == '__main__':
   params['all_tracks'] = metadata['tracks']
   params['all_codecs'] = metadata['codecs']
 
-  
   params['fake_tracks'] = get_fake_tracks(params)
   params['dim'] = metadata['dim']
   params['audio_channels'] = metadata['audio_channels']
@@ -896,7 +912,7 @@ if __name__ == '__main__':
   bash_commands.append(ssh['login']) if ssh['login'] else str()
   bash_commands.append(ssh['chdir']) if ssh['chdir'] else str()
 
-  if (params['avs'] and not times_list) or not params['avs'] or len(times_list) == 1:
+  if len(times_list) == 1 or not times_list:
     times = times_list[0] if len(times_list) == 1 else list()
 
     if params.get('track') is not None:
@@ -938,7 +954,7 @@ if __name__ == '__main__':
       'output': out_name
     })
 
-  if params['avs'] and len(times_list) > 1 and not params['trim'] and not out_name.endswith('ass'):
+  if len(times_list) > 1 and not params['trim'] and not out_name.endswith('ass'):
 
     # if not params.get('vn'):
     #   bash_commands.append('%s %s %s -an -sn -tn -mx & PID00=$!' % (
@@ -985,7 +1001,7 @@ if __name__ == '__main__':
     handle_prompt()
 
   print(os.path.abspath(os.path.curdir))
-  if params['avs'] and len(times_list) > 1:
+  if len(times_list) > 1:
     open(concat_filename, 'w').writelines([x + '\n' for x in concat_commands])
     
   open(bash_filename, 'w').writelines([x + '\n' for x in bash_commands])

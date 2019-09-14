@@ -114,27 +114,34 @@ def get_trim_times(params, input_file, frame_rate):
   trims_list = list()
   times_list = list()
 
-  curr_dir = os.path.abspath(os.path.curdir)
-  os.chdir(params['input_dir'])
+  if params['config'] and params['config'].get('trims'):
+    for trim in params['config'].get('trims'):
+      trims_list.append((trim[0], trim[1]))
+      times_list.append(
+        (float('%.3f' % (trim[0] / frame_rate)),
+        float('%.3f' % (trim[1] / frame_rate))))
+  else:
+    curr_dir = os.path.abspath(os.path.curdir)
+    os.chdir(params['input_dir'])
   
-  trims = ''.join([x for x in open(os.path.basename(input_file)).readlines() 
-    if not x.startswith('#') and 'trim(' in x.lower()]).replace(
-        ' ', '').replace('\n', '').split('++')
+    trims = ''.join([x for x in open(os.path.basename(input_file)).readlines() 
+      if not x.startswith('#') and 'trim(' in x.lower()]).replace(
+          ' ', '').replace('\n', '').split('++')
   
-  os.chdir(curr_dir)
+    os.chdir(curr_dir)
 
-  for tm in trims:
-    if not tm:
-      continue
+    for tm in trims:
+      if not tm:
+        continue
 
-    start_frame = int(tm.split(',')[0].lower().replace('trim(', ''))
-    start_time = float('%.3f' % (start_frame / frame_rate))
+      start_frame = int(tm.split(',')[0].lower().replace('trim(', ''))
+      start_time = float('%.3f' % (start_frame / frame_rate))
 
-    end_frame = int(tm.split(',')[1].lower().replace(')', ''))
-    end_time = float('%.3f' % (end_frame / frame_rate))
+      end_frame = int(tm.split(',')[1].lower().replace(')', ''))
+      end_time = float('%.3f' % (end_frame / frame_rate))
 
-    trims_list.append((start_frame, end_frame))
-    times_list.append((start_time, end_time))
+      trims_list.append((start_frame, end_frame))
+      times_list.append((start_time, end_time))
 
   print('Trimmed Frames:', trims_list)
   print('Trimmed timestamps:', times_list)
@@ -145,3 +152,5 @@ def get_trim_times(params, input_file, frame_rate):
   params['cuts']['original']['frames'] = trims_list
   params['cuts']['original']['timestamps'] = times_list
   return times_list
+
+
