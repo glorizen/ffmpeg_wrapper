@@ -696,15 +696,16 @@ def process_encoding_settings(params):
   return params
 
 ##################################################################################################
-def handle_muxing(params, options):
+def handle_muxing(params, options, must_end=False):
 
   if params['an'] and params['sn'] and params['tn']:
     # use mkvmerge to merge video parts.
     if options.get('temp') and len(options.get('temp')) > 1:
       merge_video(params, options.get('temp'), options.get('output'))
-    else:
+      exit(0)
+    elif must_end:
       print('No temp files to be appended. Exiting normally.')
-    exit(0)
+      exit(0)
 
   elif params['an'] and not(params['vn'] or params['sn'] or
     params['tn']):
@@ -954,7 +955,7 @@ if __name__ == '__main__':
     handle_muxing(params, {
       'temp': temp_filenames,
       'output': out_name
-    })
+    }, must_end=True)
 
   if len(times_list) > 1 and not params['trim'] and not out_name.endswith('ass'):
 
