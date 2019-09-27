@@ -975,27 +975,6 @@ if __name__ == '__main__':
   bash_commands.append('rm %s' % (bash_filename))
   bash_commands.append(ssh['logout']) if ssh['logout'] else str()
 
-  if params['mx']:
-
-    video_name = str(); audio_name = str(); sub_name = str()
-
-    if 'v' in params['mx']:
-      video_string = '-i %s_Encoded.mkv' % (params['in'][:-4])
-    
-    if 'a' in params['mx']:
-      audio_string = '-i %s_Audio_%d.aac' % (params['in'][:-4], tracks['a'][0])
-    
-    if 's' in params['mx']:
-      sub_string = '-i %s_Subtitle_final_%d.aac' % (params['in'][:-4], tracks['s'][0])
-    
-    if 'c' in params['mx']:
-      ch_string = '-map_chapters -1'
-
-    command = 'ffmpeg %s %s %s -map 0:v? -c:v copy -map 1:a? -c:a copy -map 2:s? -c:s copy ' \
-      '-map 3:t? %s test000.mkv' % (video_string, audio_string, sub_string, ch_string)
-
-    bash_commands.append(command)
-
   if params['prompt']:
     handle_display(bash_commands, bash_filename, concat_commands, concat_filename)
     handle_prompt()
