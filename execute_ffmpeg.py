@@ -48,7 +48,7 @@ def process_params(params):
   if params['config'] and not os.path.isfile(params['config']):
       raise FileNotFoundError('Given config file does not exist: %s' % (params['config']))
   
-  params['config'] = json.load(open(params['config'], 'r')) if params['config'] else None
+  params['config'] = json.load(open(params['config'], 'r')) if params['config'] else list()
   if os.path.basename(params['in']) in params['config']:
     params['config'] = params['config'][os.path.basename(params['in'])]
   else:
@@ -702,7 +702,9 @@ def handle_muxing(params, options):
     # use mkvmerge to merge video parts.
     if options.get('temp') and len(options.get('temp')) > 1:
       merge_video(params, options.get('temp'), options.get('output'))
-      exit(0)
+    else:
+      print('No temp files to be appended. Exiting normally.')
+    exit(0)
 
   elif params['an'] and not(params['vn'] or params['sn'] or
     params['tn']):
