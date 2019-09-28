@@ -426,6 +426,11 @@ def handle_chapter_writing(params):
   if not params.get('cc'):
     return
 
+  if params['config'] and (not params['config'].get('trims') or \
+      len(params['config'].get('trims')) <= 1):
+    print('No OC parts detected. Skipping chapter creation.')
+    exit(0)
+
   if not params['op'] and params.get('config') and params['config'].get('op'):
     params['op'] = get_metadata(params, params['config']['op'])
   if not params['ed'] and params.get('config') and params['config'].get('ed'):
