@@ -12,9 +12,7 @@ from subedit import delay_subtitle
 from external import start_external_execution
 from metadata import get_metadata, get_ffprobe_metadata
 
-from chapters import (
-  get_names_and_order, get_chapter_content, 
-  get_chapter_mux_command)
+from chapters import handle_chapter_writing
 from avs import (
   source_from_avscript,get_trim_times, get_custom_commands)
 from muxer import (
@@ -511,46 +509,6 @@ def add_external_commands(ffmpeg_obj, flag_str='bctw'):
 
   if 'w' in flag_str:
     wait_commands.append('wait $%s' % (ffmpeg_obj['pid'])) if ffmpeg_obj['pid'] else str()
-
-##################################################################################################
-def handle_chapter_writing(params):
-
-  if not params.get('cc'):
-    return
-
-  params['op'] = get_metadata(params, params['op']) \
-    if params.get('op') else None
-  params['ed'] = get_metadata(params, params['ed']) \
-    if params.get('ed') else None
-
-  # if params['source_delay']:
-  #   chapter_delay = -1 * int(params['source_delay'])
-  #   new_times = list()
-  #   for part in times_list:
-  #     new_part = list()
-  #     for timestamp in part:
-  #       if timestamp > 0:
-  #         timestamp = '%.3f' % (timestamp)
-  #         seconds, millisecs = [int(x) for x in timestamp.split('.')]
-  #         timestamp = (seconds * 1000) + millisecs
-  #         timestamp += chapter_delay
-  #         timestamp = float('%.3f' % (timestamp / 1000))
-        
-  #       new_part.append(timestamp)
-  #     new_times.append(tuple(new_part))
-  # times_list = new_times
-
-  params['chapter'] = {
-    'content': get_chapter_content(times_list, params),
-    'filename': '%s_chapter.xml' % (params['in'][:-4])
-  }
-
-  f = open(params['chapter']['filename'], 'w')
-  f.write(params['chapter']['content'])
-  f.close()
-
-  print('#' * 50 + '\n' + 'Chapter file written: %s' % (params['chapter']['filename']))
-  print('\n'); exit(0)
 
 ##################################################################################################
 def handle_subtitle_extraction(params):

@@ -2,6 +2,8 @@ import os
 import time
 import chameleon
 from datetime import timedelta
+from metadata import get_metadata
+
 
 CH_TEMPLATE_STRING = \
 '''<?xml version="1.0"?>
@@ -27,6 +29,7 @@ CH_TEMPLATE_STRING = \
     </ChapterAtom>
   </EditionEntry>
 </Chapters>'''
+
 ##################################################################################################
 def get_names_and_order(times_list, params):
 
@@ -416,3 +419,49 @@ def get_chapter_mux_command(params):
       input_name, chapter_name)
 
   return command
+
+##################################################################################################
+def handle_chapter_writing(params):
+
+  if not params.get('cc'):
+    return
+
+  if not params['op'] and params.get('config') and params['config'].get('op'):
+    params['op'] = get_metadata(params, params['config']['op'])
+  if not params['ed'] and params.get('config') and params['config'].get('ed'):
+    params['ed'] = get_metadata(params, params['config']['ed'])
+
+  params['op'] = get_metadata(params, params['op']) \
+    if params.get('op') else None
+  params['ed'] = get_metadata(params, params['ed']) \
+    if params.get('ed') else None
+
+  # if params['source_delay']:
+  #   chapter_delay = -1 * int(params['source_delay'])
+  #   new_times = list()
+  #   for part in times_list:
+  #     new_part = list()
+  #     for timestamp in part:
+  #       if timestamp > 0:
+  #         timestamp = '%.3f' % (timestamp)
+  #         seconds, millisecs = [int(x) for x in timestamp.split('.')]
+  #         timestamp = (seconds * 1000) + millisecs
+  #         timestamp += chapter_delay
+  #         timestamp = float('%.3f' % (timestamp / 1000))
+
+  #       new_part.append(timestamp)
+  #     new_times.append(tuple(new_part))
+  # times_list = new_times
+
+  params['chapter'] = {
+    'content': get_chapter_content(
+      params['cuts']['original']['timestamps'], params),
+    'filename': '%s_chapter.xml' % (params['in'][:-4])
+  }
+
+  f = open(params['chapter']['filename'], 'w')
+  f.write(params['chapter']['content'])
+  f.close()
+
+  print('#' * 50 + '\n' + 'Chapter file written: %s' % (params['chapter']['filename']))
+  print('\n'); exit(0)
