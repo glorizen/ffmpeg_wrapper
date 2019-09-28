@@ -437,9 +437,9 @@ def handle_chapter_writing(params):
     params['ed'] = get_metadata(params, params['config']['ed'])
 
   params['op'] = get_metadata(params, params['op']) \
-    if params.get('op') else None
+    if isinstance(params.get('op'), str) else params['op']
   params['ed'] = get_metadata(params, params['ed']) \
-    if params.get('ed') else None
+    if isinstance(params.get('ed'), str) else params['ed']
 
   # if params['source_delay']:
   #   chapter_delay = -1 * int(params['source_delay'])
