@@ -150,7 +150,7 @@ def get_audio_files(params):
   audio_files = ['%s_Audio_%d.opus' % (basename, audio_id)
     for audio_id in audio_tracks]
   
-  return audio_files
+  return sorted(list(set(audio_files)))
 
 def get_sub_files(params):
 

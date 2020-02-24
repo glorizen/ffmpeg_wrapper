@@ -39,6 +39,9 @@ def get_names_and_order(times_list, params):
     fixed_names = params['avs_chapters']['names']
     times_list = params['avs_chapters']['times']
 
+  if params.get('config') and params['config'].get('names'):
+    fixed_names = [x.capitalize() for x in params['config']['names']]
+
   print('Original Timings:', times_list)
   
   diff = 0
@@ -426,8 +429,8 @@ def handle_chapter_writing(params):
   if not params.get('cc'):
     return
 
-  if params['config'] and (not params['config'].get('trims') or \
-      len(params['config'].get('trims')) <= 1):
+  config_trims = params.get('config', dict()).get('trims', list())
+  if params['config'] and not config_trims:
     print('No OC parts detected. Skipping chapter creation.')
     exit(0)
 
