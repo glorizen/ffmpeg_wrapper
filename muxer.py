@@ -287,6 +287,10 @@ def mux_episode(params, audio=True, subs=True, attachments=True):
 	 timestamps[0][1] - timestamps[0][0] > 300):
        oc = True
 
+  if params.get('config') and params['config'].get('op') or \
+      params.get('config') and params['config'].get('ed'):
+    oc = True
+
   if oc:
     chapter_file = '%s_chapter.xml' % (basename)
     if not os.path.isfile(chapter_file):
@@ -319,6 +323,8 @@ def mux_episode(params, audio=True, subs=True, attachments=True):
       if not has_defaulted and sub_lang in ['eng', 'enm']:
         is_default = True
         has_defaulted = True
+      elif len(sub_files) == 1:
+        is_default = True
       else:
         is_default = False
 
@@ -366,7 +372,6 @@ def mux_episode(params, audio=True, subs=True, attachments=True):
         audio_name = 'FLAC Audio'
       
       audio_name = '%s %s' % (audio_name, audio_channels)
-      
       if not has_defaulted and audio_lang in ['jpn', 'ja']:
         is_default = True
         has_defaulted = True

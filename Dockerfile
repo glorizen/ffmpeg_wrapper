@@ -2,7 +2,7 @@ FROM node:10.19-buster-slim
 
 RUN apt update && \
   apt-get install -y python3 python3-pip python3-venv mediainfo && \
-  apt-get install -y vim curl zip unzip wget task-spooler && \
+  apt-get install -y vim curl zip unzip wget less task-spooler libarchive-zip-perl && \
   ln -s /usr/bin/python3 /usr/bin/python && \
   ln -s /usr/bin/pip3 /usr/bin/pip && \
   python -m venv /.venv/ && \
