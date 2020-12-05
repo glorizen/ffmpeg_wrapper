@@ -151,7 +151,10 @@ def get_names_and_order(times_list, params):
       order = [times_list[0], params['ed'], times_list[1]]
 
   elif len(times_list) == 2 and (not params['op'] and not params['ed']):
-    if times_list[0][0] == 0 and (times_list[0][1] - times_list[0][0] <= 600):
+    if fixed_names:
+        names = fixed_names
+        order = times_list
+    elif times_list[0][0] == 0 and (times_list[0][1] - times_list[0][0] <= 600):
       names = ['Intro', 'Episode']
       order = times_list
     else:

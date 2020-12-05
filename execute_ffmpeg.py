@@ -62,7 +62,9 @@ def get_params():
   parser.add_argument('-crf', type=float, help='crf value to use in video encoder.')
   parser.add_argument('-aqm', type=int, help='aq-mode to use in video encoder.')
   parser.add_argument('-aqs', type=float, help='aq-strength to use in video encoder.')
-  
+  parser.add_argument('-psyrd', type=str, help='psy-rd to use in video encoder.')
+  parser.add_argument('-vparams', type=str, default=str(), help='extra video params to pass to ffmpeg')
+
   parser.add_argument('-node', default=-1, type=int, 
     help='computing node that will be sshed into and then used for encoding.')
   parser.add_argument('-nohup', type=str, default=str(), help='starts process in background ' \
@@ -88,7 +90,8 @@ def get_params():
   parser.add_argument('-fr', type=float, help='assumes the frame rate for the source file to <FR>.')
   parser.add_argument('-r', type=float, help='converts the frame rate for the output file to <R>.')
   parser.add_argument('-hevc', action='store_true', help='enables HEVC encoding rather than x264.')
-  parser.add_argument('-aac', action='store_true', help='enables AAC audio encoding rather than OPUS.')
+  parser.add_argument('-fdkaac', action='store_true', help='enables AAC audio encoding using libfdk_aac.')
+  parser.add_argument('-aac', action='store_true', help='enables AAC audio encoding using ffmpeg native encoder.')
   
   parser.add_argument('-prompt', action='store_true', 
     help='prompts user to confirm before writing to disk.')
@@ -116,6 +119,7 @@ def get_params():
     '<ATTACH> can be a path to directory or a font file.')
   parser.add_argument('-dframe', type=str, help='draws frame number on video using filter graph.')
   parser.add_argument('-config', type=str, help='path to json config file.')
+  parser.add_argument('-abitrate', type=int, help='bitrate per channel for audio encoding.', default=40000)
 
   params = parser.parse_args().__dict__
   params = process_params(params)
@@ -278,6 +282,7 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
     temp_name = '"%s"' % (os.path.join(params['dest'], temp_name))
   
   video_filters = str()
+  psyrd = str() if not params.get('psyrd') else '-psy-rd %s' % (params['psyrd'])
   
   if frame_cut:
     video_filters += '[0:v]trim=start_frame={start}:' \
@@ -329,15 +334,22 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
     if params['hevc']:
       video_encoding = '{vfilters} -c:v libx265 ' \
         '-preset slower -pix_fmt yuv420p10le -x265-params crf={crf}:aq-mode={aq_mode}:' \
-        'aq-strength={aq_strength}:subme=5'.format(
+        'aq-strength={aq_strength}:subme=5:{vparams} {psyrd}'.format(
           vfilters=video_filters, crf=params['crf'],
-          aq_mode=params['aqm'], aq_strength=params['aqs'])
+          aq_mode=params['aqm'], aq_strength=params['aqs'],
+          vparams=params.get('vparams', str()), psyrd=psyrd)
     else:
+      if params.get('vparams'):
+        vparams = '-x264-params %s' % params.get('vparams')
+      else:
+        vparams = str()
+
       video_encoding = '{vfilters} -c:v libx264 ' \
         '-preset veryslow -pix_fmt yuv420p10le -crf {crf} -aq-mode {aq_mode} ' \
-        '-aq-strength {aq_strength}'.format(
+        '-aq-strength {aq_strength} {psyrd} {vparams}'.format(
           vfilters=video_filters, crf=params['crf'],
-          aq_mode=params['aqm'], aq_strength=params['aqs'])
+          aq_mode=params['aqm'], aq_strength=params['aqs'],
+          psyrd=psyrd, vparams=vparams)
 
     if params.get('r'):
       # video_encoding += ' -r %.3f' % (params['frame_rate'])
@@ -353,8 +365,10 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
     else:
       audio_cut = str()
 
-    if params.get('aac'):
+    if params.get('fdkaac'):
       audio_encoder = '%s -c:a libfdk_aac -vbr 4' % (audio_cut)
+    elif params.get('aac'):
+      audio_encoder = '%s -c:a aac -q:a 1.2' % (audio_cut)
     else:
       if track_id != -1:
         channels = params['audio_channels'][params['all_tracks']['a'].index(track_id)]
@@ -365,11 +379,11 @@ def get_ffmpeg_command(params, times, command_num=0, is_out=str(), track_id=-1):
         audio_encoder = '{audio_cut} -c:a libopus -af ' \
           'aformat=channel_layouts="7.1|5.1|stereo" ' \
           '-b:a {bitrate} -vbr on -compression_level 10'.format(
-            audio_cut=audio_cut, bitrate=80000 * (channels / 2))
+            audio_cut=audio_cut, bitrate=(params['abitrate'] * channels))
       else:
         audio_encoder = '{audio_cut} -c:a libopus -b:a {bitrate} ' \
           '-vbr on -compression_level 10'.format(
-          audio_cut=audio_cut, bitrate=80000 * (channels / 2))
+          audio_cut=audio_cut, bitrate=(params['abitrate'] * channels))
 
     if track_id is not -1:
       audio_encoding = '-map 0:%d %s' % (track_id, audio_encoder)
@@ -794,8 +808,9 @@ if __name__ == '__main__':
   if len(tracks['a']) > 1 and not params.get('track') and not params.get('an'):
     for track_id in tracks['a']:
       audio_options = '-hi -aac' if params.get('aac') else str()
-      python_command = 'python3 %s %s -track %d %s -nthread -x' % (__file__, params['orig_in'], 
-        track_id, audio_options)
+      audio_options += ' -abitrate %d' % (params['abitrate'])
+      python_command = 'python3 %s %s -track %d %s -nthread -x' % (
+        __file__, params['orig_in'], track_id, audio_options)
       start_external_execution(python_command)
 
     exit(0)

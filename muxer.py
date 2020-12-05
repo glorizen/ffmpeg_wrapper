@@ -11,8 +11,7 @@ ATTACHMENT_SIZE_RANGE = 40
 
 def get_font_details(font_file):
 
-  if not(font_file.lower().endswith('ttf') or \
-    font_file.lower().endswith('otf')):
+  if not font_file.lower().endswith(('ttf', 'otf', 'pfb', 'pfm')):
     print('Font format is not supported: %s' % (font_file))
     return
   
@@ -21,7 +20,9 @@ def get_font_details(font_file):
     MIME = 'application/x-truetype-font'
   elif font_file.lower().endswith('otf'):
     MIME = 'application/vnd.ms-opentype'
-  
+  elif font_file.lower().endswith(('.pfb', '.pfm')):
+    MIME = 'application/octet-stream'
+
   details = {
     'name': os.path.basename(font_file),
     'MIME': MIME,
@@ -149,7 +150,9 @@ def get_audio_files(params):
 
   audio_files = ['%s_Audio_%d.opus' % (basename, audio_id)
     for audio_id in audio_tracks]
-  
+  audio_files.extend(['%s_Audio_%d.aac' % (basename, audio_id)
+    for audio_id in audio_tracks])
+
   return sorted(list(set(audio_files)))
 
 def get_sub_files(params):
@@ -205,7 +208,7 @@ def get_sub_files(params):
         elif 'subrip' in codec.lower():
           extension = 'srt'
         elif 'pgs' in codec.lower():
-          extension = 'pgs'
+          extension = 'sup'
       else:
         extension = 'ass'
 
@@ -288,7 +291,8 @@ def mux_episode(params, audio=True, subs=True, attachments=True):
        oc = True
 
   if params.get('config') and params['config'].get('op') or \
-      params.get('config') and params['config'].get('ed'):
+      params.get('config') and params['config'].get('ed') or \
+      params.get('config') and params['config'].get('names'):
     oc = True
 
   if oc:
@@ -335,8 +339,9 @@ def mux_episode(params, audio=True, subs=True, attachments=True):
           is_default='yes' if is_default else 'no',
           subtitle_language=sub_lang, subtitle_name=sub_name,
           filename=sub_file['name']))
-      
-      expected_size += os.path.getsize(sub_file['name'])
+
+      if not sub_file['name'].endswith('.sup'):
+        expected_size += os.path.getsize(sub_file['name'])
 
     subtitle_command = ' '.join([x for x in subtitle_command])
   else:
@@ -524,7 +529,7 @@ def ffmpeg_audio_mux(params, mux_to_filename):
     print('No audio input was used. Exiting ffmpeg muxing module.')
     return
 
-  command = 'ffmpeg -i {video_file} {audio_input} -map 0:v? -c:v copy ' \
+  command = 'ffmpeg -i {video_file} {audio_input} -map 0:0? -c:v copy ' \
     '{audio_mapping} -map 0:s? -c:s copy -map 0:t? -y {output}'.format(
       video_file=mux_to_filename, audio_input=audio_input,
       audio_mapping=audio_mapping, output=output_file

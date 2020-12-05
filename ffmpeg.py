@@ -20,7 +20,7 @@ def redo_audio_ffmpeg(params, filename):
 
     audio_command = list()
     for audio_number, index in enumerate(audio_indices):
-      bitrate = params['audio_channels'][audio_number] * 40000
+      bitrate = params['audio_channels'][audio_number] * params['abitrate']
       audio_command.append('-map 0:{map_index} -c:a libopus ' \
         '-vbr on -compression_level 10 -b:a {bitrate}'.format(
           map_index=index, bitrate=bitrate))
