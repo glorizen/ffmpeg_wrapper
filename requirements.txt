@@ -1,3 +1,5 @@
 Chameleon==3.6.2
 MediaInfo==0.0.8
 pysubs==0.1.1
+pysrt==1.1.2
+

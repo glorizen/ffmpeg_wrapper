@@ -8,8 +8,8 @@ from datetime import timedelta
 
 import pysubs
 import chameleon
-from subedit import delay_subtitle
 from external import start_external_execution
+from subedit import delay_subtitle, convert_to_ssa
 from metadata import get_metadata, get_ffprobe_metadata
 
 from chapters import handle_chapter_writing
@@ -109,6 +109,7 @@ def get_params():
   parser.add_argument('-mx', action='store_true', help='muxes streams at the end by mkvmerge and / or ffmpeg.')
   parser.add_argument('-hi', action='store_true', help='uses ffmpeg-hi that has non-free libs.')
   parser.add_argument('-map_ch', action='store_true', help='attaches default chapter file.')
+  parser.add_argument('-ssa', action='store_true', help='convert SubRip (.srt) to SSA (.ass) files.')
 
   parser.add_argument('-op', type=str, help='specify opening file for .mkv OC.')
   parser.add_argument('-ed', type=str, help='specify ending file for .mkv OC.')
@@ -733,6 +734,10 @@ if __name__ == '__main__':
     start_external_execution(command)
     exit(0)
 
+  if params.get('ssa'):
+    convert_to_ssa(params['in'])
+    exit(0)
+
   if not params['in'].endswith('.avs'):
     params['avs'] = False
     print('Not an avscript. [Skipping custom commands processing from the given input]')
@@ -881,6 +886,9 @@ if __name__ == '__main__':
 
       subtitle_filename = '%s_Subtitle_final_%d.%s' % (
         params['in'][:-4], track_id, extension)
+      if extension == 'srt':
+          convert_to_ssa(subtitle_filename)
+          subtitle_filename = subtitle_filename.replace('.srt', '.ass')
       handle_subtitle_trimming(params, subtitle_filename)
 
     exit(0)
